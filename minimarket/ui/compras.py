@@ -24,9 +24,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minimarket.datos.repositorios import compra as repo_compra
-from minimarket.datos.repositorios import producto as repo_producto
-from minimarket.datos.repositorios import proveedor as repo_proveedor
 from minimarket.dominio.compra import ANULADA, Compra, LineaCompra, Proveedor
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import compras, usuario_actual
@@ -111,14 +108,14 @@ class PantallaCompras(QWidget):
         self.proveedor.clear()
         self.proveedor.addItem("Todos los proveedores", None)
         self.proveedores = {}
-        for proveedor in repo_proveedor.listar(self.conexion, solo_activos=False):
+        for proveedor in compras.listar_proveedores(self.conexion, solo_activos=False):
             self.proveedores[proveedor.id] = proveedor.nombre
             self.proveedor.addItem(proveedor.nombre, proveedor.id)
         indice = self.proveedor.findData(seleccionado)
         self.proveedor.setCurrentIndex(max(indice, 0))
         self.proveedor.blockSignals(False)
 
-        self.compras = repo_compra.listar(
+        self.compras = compras.listar_compras(
             self.conexion, proveedor_id=self.proveedor.currentData()
         )
         if not self.incluir_anuladas.isChecked():
@@ -155,7 +152,7 @@ class PantallaCompras(QWidget):
         compra = self._exigir()
         if compra is not None:
             # `listar` trae el encabezado sin detalle; el dialogo lo necesita.
-            completa = repo_compra.obtener(self.conexion, compra.id)
+            completa = compras.obtener_compra(self.conexion, compra.id)
             DialogoCompra(self.conexion, completa, self).exec()
 
     def pagar(self) -> None:
@@ -203,11 +200,13 @@ class DialogoCompra(QDialog):
         self.solo_lectura = compra is not None
         self.lineas: list[LineaCompra] = []
         self.nombres: dict[int, str] = {}
-        self.setWindowTitle("Compra registrada" if self.solo_lectura else "Nueva compra")
+        self.setWindowTitle(
+            "Compra registrada" if self.solo_lectura else "Nueva compra"
+        )
         self.resize(940, 560)
 
         self.proveedor = QComboBox()
-        for proveedor in repo_proveedor.listar(conexion):
+        for proveedor in compras.listar_proveedores(conexion):
             self.proveedor.addItem(proveedor.nombre, proveedor.id)
         self.fecha = QLineEdit(servicio_tasa.hoy())
         self.documento = QLineEdit()
@@ -338,7 +337,7 @@ class DialogoCompra(QDialog):
         self.tabla.setRowCount(len(self.lineas))
         for fila, linea in enumerate(self.lineas):
             if linea.producto_id not in self.nombres:
-                producto = repo_producto.obtener(self.conexion, linea.producto_id)
+                producto = catalogo.obtener_producto(self.conexion, linea.producto_id)
                 self.nombres[linea.producto_id] = producto.nombre if producto else "?"
             celdas = [
                 self.nombres[linea.producto_id],
@@ -493,7 +492,7 @@ class PantallaProveedores(QWidget):
         self.refrescar()
 
     def refrescar(self) -> None:
-        self.proveedores = repo_proveedor.listar(
+        self.proveedores = compras.listar_proveedores(
             self.conexion, solo_activos=not self.incluir_inactivos.isChecked()
         )
         self.tabla.setRowCount(len(self.proveedores))

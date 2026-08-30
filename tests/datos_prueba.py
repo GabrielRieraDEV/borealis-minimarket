@@ -28,6 +28,10 @@ CATEGORIAS = [
     ("Tabaco", Decimal(20)),
 ]
 
+# Las que se venden por fecha de vencimiento. Sin esto la carga no genera
+# lotes y las mediciones de RF-31 y RF-54 corren sobre una tabla vacia.
+CON_VENCIMIENTO = {"Charcuteria", "Carniceria", "Hortalizas"}
+
 _SUSTANTIVOS = [
     "Harina", "Arroz", "Pasta", "Aceite", "Azucar", "Cafe", "Leche", "Jabon",
     "Refresco", "Queso", "Jamon", "Papel", "Detergente", "Pila", "Cargador",
@@ -39,12 +43,12 @@ _MODIFICADORES = [
 ]
 
 
-def crear_categorias(conexion: sqlite3.Connection) -> list[int]:
+def crear_categorias(conexion: sqlite3.Connection) -> dict[str, int]:
     with transaccion(conexion):
-        return [
-            repo_categoria.crear(conexion, Categoria(None, nombre, margen))
+        return {
+            nombre: repo_categoria.crear(conexion, Categoria(None, nombre, margen))
             for nombre, margen in CATEGORIAS
-        ]
+        }
 
 
 def cargar(conexion: sqlite3.Connection, cantidad: int = 3000) -> list[int]:
@@ -53,23 +57,27 @@ def cargar(conexion: sqlite3.Connection, cantidad: int = 3000) -> list[int]:
     categorias = crear_categorias(conexion)
     alicuotas = [a.id for a in repo_alicuota.listar(conexion)]
     with transaccion(conexion):
-        return [
-            repo_producto.crear(
-                conexion,
-                Producto(
-                    nombre=(
-                        f"{azar.choice(_SUSTANTIVOS)} "
-                        f"{azar.choice(_MODIFICADORES)} {numero:04d}"
+        productos = []
+        for numero in range(cantidad):
+            categoria = azar.choice(list(categorias))
+            productos.append(
+                repo_producto.crear(
+                    conexion,
+                    Producto(
+                        nombre=(
+                            f"{azar.choice(_SUSTANTIVOS)} "
+                            f"{azar.choice(_MODIFICADORES)} {numero:04d}"
+                        ),
+                        codigo_barras=f"77{numero:011d}",
+                        categoria_id=categorias[categoria],
+                        alicuota_iva_id=azar.choice(alicuotas),
+                        precio_venta_usd=Decimal(azar.randint(500, 500_000)) / 10_000,
+                        existencia_minima=Decimal(azar.randint(0, 20)),
+                        maneja_vencimiento=categoria in CON_VENCIMIENTO,
                     ),
-                    codigo_barras=f"77{numero:011d}",
-                    categoria_id=azar.choice(categorias),
-                    alicuota_iva_id=azar.choice(alicuotas),
-                    precio_venta_usd=Decimal(azar.randint(500, 500_000)) / 10_000,
-                    existencia_minima=Decimal(azar.randint(0, 20)),
-                ),
+                )
             )
-            for numero in range(cantidad)
-        ]
+        return productos
 
 
 if __name__ == "__main__":

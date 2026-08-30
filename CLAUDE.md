@@ -35,16 +35,22 @@ una sola caja, sin conexión permanente a internet.
 
 ```
 minimarket/
+    __main__.py  arranque: abre la base y se la entrega a la interfaz
     dominio/     entidades y cálculos puros — no importa nada de las otras capas
     datos/       esquema, migraciones, repositorios
     servicios/   casos de uso, coordinan dominio + datos en transacciones
     ui/          ventanas PySide6
-    infra/       impresora, tasa BCV, respaldo, bitácora, configuración
+    infra/       impresora, tasa BCV, respaldo, bitácora, rutas, configuración
 tests/
 ```
 
 `dominio/` no importa `datos/`, `ui/` ni `infra/`. Esta regla no se negocia.
-`ui/` no habla con `datos/`: pasa siempre por `servicios/`.
+`ui/` no habla con `datos/`: pasa siempre por `servicios/`. Se verifica con
+`grep -rn "from minimarket.datos" minimarket/ui/` — tiene que dar vacío.
+
+El único módulo que conoce dos capas a la vez es `minimarket/__main__.py`, que
+es el armado de la aplicación: abre la conexión y llama a `ui.principal.main`
+con ella. Las pantallas la reciben ya abierta y no saben de dónde salió.
 
 ## Documentación
 
@@ -112,6 +118,10 @@ Fase 5 terminada: `dominio/inventario.py` (`Perdida`, `MotivoPerdida`,
 `servicios/gastos.py`, tres reportes más en `servicios/reportes.py` y la
 interfaz (`ui/perdidas.py` con el registro y el panel de vencimientos,
 `ui/gastos.py`, `ui/inicio.py`). 270 pruebas.
+
+Antes de la Fase 6 se saldó la deuda anotada: `ui/` dejó de importar
+`datos/`, el arranque se movió a `minimarket/__main__.py` con
+`infra/rutas.py`, y se midió RNF-04 sobre un mes de operación. 272 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -304,25 +314,48 @@ Resueltas en la Fase 5:
   pasa por `catalogo.listado_completo`. Era el único selector de producto y lo
   necesitaba también la pantalla de pérdidas.
 
+Saldadas antes de la Fase 6:
+
+- **`ui/` ya no importa `datos/`**. Las catorce consultas sueltas que quedaban
+  en `categorias.py`, `compras.py` y `productos.py` pasan por
+  `servicios/catalogo.py` y `servicios/compras.py`. `ultimo_costo` y
+  `listar_compras` quedaron detrás de su permiso, que es lo que faltaba: eran
+  el agujero por el que un cajero podía ver costos si llegaba a la pantalla.
+- **El arranque salió de `ui/`**: `infra/rutas.base_de_datos` decide dónde vive
+  el archivo y `minimarket/__main__.py` abre la conexión. `ui.principal.main`
+  ahora la recibe. La Fase 6 empaqueta ese punto de entrada sin tocar la
+  interfaz.
+- **Existencia en caché: medida, no hace falta.** Con 3.000 productos, 500
+  ventas y 316 lotes, el reporte más lento es el inventario valorizado con
+  0,044 s contra los 5 s de RNF-04. La vista `v_existencia` se queda como está;
+  materializarla no compra nada. Lo fija
+  `tests/test_rendimiento.test_la_existencia_calculada_no_necesita_cache`.
+- **`lotes_con_saldo` devolviendo todos los lotes: medido, no hace falta.**
+  RF-54 sobre 316 lotes tarda 0,011 s. RN-17 sigue viviendo una sola vez, en el
+  dominio.
+- **RNF-04 quedó cubierto por pruebas**: los nueve reportes sobre un mes de
+  operación, en `tests/test_rendimiento.py`. `tests/datos_prueba.py` ahora
+  marca vencimiento en charcutería, carnicería y hortalizas, porque sin lotes
+  la medición de RF-31 y RF-54 corría sobre una tabla vacía.
+
 Pendientes para fases posteriores:
 
-- **`ui/productos.py` y `ui/compras.py` todavía importan `repo_producto`** para
-  tres consultas sueltas (`tiene_movimientos`, `ultimo_costo` y el nombre de un
-  producto en el detalle de compra). Es de las fases 1 y 2 y contradice la
-  regla de que `ui/` no habla con `datos/`. Son tres funciones de una línea en
-  `servicios/catalogo.py` cuando alguna fase toque esas pantallas.
 - **Clave del administrador en el primer arranque**: hoy la pide
   `ui/principal.ingresar` con `DialogoClaveInicial`, porque sin eso no se puede
   entrar. La Fase 6 lo mueve al asistente de instalación; el servicio
   (`usuarios.establecer_clave_inicial`) no cambia.
-- **Existencia en caché**: el modelo de datos la sugiere por volumen. Hoy es la
-  vista `v_existencia`. No materializarla hasta que una medición sobre los 3.000
-  productos de prueba lo justifique; RN-11 solo la permite si se recalcula desde
-  los movimientos y nunca se edita.
+- **Mensajes de error (RNF-09)**: `configuracion.restaurar` e
+  `infra/respaldo.ejecutar` incrustan el texto de la excepción del sistema
+  operativo. Ayuda a entender qué pasó, pero es detalle técnico. La revisión
+  completa de mensajes es el punto 3 de la Fase 6.
 - **Migraciones**: `abrir()` ejecuta `esquema.sql` completo en cada apertura y
   es idempotente (`IF NOT EXISTS` + `INSERT OR IGNORE`). Alcanza mientras el
-  esquema solo crezca; el día que haya que cambiar una columna existente hace
-  falta versionado con `PRAGMA user_version`.
+  esquema solo crezca. El día que haya que cambiar una columna existente hace
+  falta un runner con `PRAGMA user_version`; hasta entonces no se estampa nada,
+  porque `user_version` arranca en 0 y esa primera migración puede leer el 0
+  como «esquema base» sin perder información. Ojo con esto al publicar
+  actualizaciones a un cliente que ya tenga datos: un `esquema.sql` cambiado no
+  altera las tablas que ya existen.
 
 ## Los tres desvíos más probables
 

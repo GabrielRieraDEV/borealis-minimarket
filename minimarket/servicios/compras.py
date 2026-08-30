@@ -99,6 +99,32 @@ def cambiar_estado_proveedor(
         repo_proveedor.actualizar(conexion, proveedor)
 
 
+def listar_proveedores(
+    conexion: sqlite3.Connection, solo_activos: bool = True
+) -> list[Proveedor]:
+    """RF-14."""
+    return repo_proveedor.listar(conexion, solo_activos=solo_activos)
+
+
+def listar_compras(
+    conexion: sqlite3.Connection,
+    desde: str | None = None,
+    hasta: str | None = None,
+    proveedor_id: int | None = None,
+) -> list[Compra]:
+    """RF-17. Encabezados sin detalle; el detalle se pide al abrir una."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)  # expone costos
+    return repo_compra.listar(
+        conexion, desde=desde, hasta=hasta, proveedor_id=proveedor_id
+    )
+
+
+def obtener_compra(conexion: sqlite3.Connection, compra_id: int) -> Compra | None:
+    """RF-17. La compra completa, con sus lineas."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
+    return repo_compra.obtener(conexion, compra_id)
+
+
 # --- Registro de compras (RF-15 a RF-18, RF-21) -----------------------------
 
 

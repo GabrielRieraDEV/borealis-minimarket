@@ -12,6 +12,7 @@ from minimarket.datos.repositorios import alicuota as repo_alicuota
 from minimarket.datos.repositorios import categoria as repo_categoria
 from minimarket.datos.repositorios import producto as repo_producto
 from minimarket.dominio.producto import (
+    AlicuotaIva,
     Categoria,
     Producto,
     margen_resultante,
@@ -108,6 +109,42 @@ def listado_completo(
     return repo_producto.listar(
         conexion, solo_activos=solo_activos, limite=1_000_000
     )
+
+
+def obtener_producto(
+    conexion: sqlite3.Connection, producto_id: int
+) -> Producto | None:
+    return repo_producto.obtener(conexion, producto_id)
+
+
+def tiene_movimientos(conexion: sqlite3.Connection, producto_id: int) -> bool:
+    """RF-02. Si los tiene, la baja conserva el historico en vez de borrarlo."""
+    return repo_producto.tiene_movimientos(conexion, producto_id)
+
+
+def ultimo_costo(
+    conexion: sqlite3.Connection, producto_id: int
+) -> Decimal | None:
+    """RN-07. Costo de la ultima compra confirmada; None si nunca se compro."""
+    servicio_usuarios.exigir(conexion, VER_COSTOS)  # RF-58
+    return repo_producto.ultimo_costo(conexion, producto_id)
+
+
+def listar_categorias(
+    conexion: sqlite3.Connection, solo_activas: bool = True
+) -> list[Categoria]:
+    """RF-05."""
+    return repo_categoria.listar(conexion, solo_activas=solo_activas)
+
+
+def cantidad_productos(conexion: sqlite3.Connection, categoria_id: int) -> int:
+    """RF-05. Cuantos productos cuelgan de una categoria."""
+    return repo_categoria.cantidad_productos(conexion, categoria_id)
+
+
+def listar_alicuotas(conexion: sqlite3.Connection) -> list[AlicuotaIva]:
+    """RF-06. Las tres del esquema: exento, general y reducida."""
+    return repo_alicuota.listar(conexion)
 
 
 def calcular_precio(

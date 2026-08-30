@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minimarket.datos.repositorios import categoria as repo_categoria
 from minimarket.dominio.producto import Categoria
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo
@@ -58,13 +57,13 @@ class PantallaCategorias(QWidget):
         self.refrescar()
 
     def refrescar(self) -> None:
-        self.categorias = repo_categoria.listar(self.conexion, solo_activas=False)
+        self.categorias = catalogo.listar_categorias(self.conexion, solo_activas=False)
         self.tabla.setRowCount(len(self.categorias))
         for fila, categoria in enumerate(self.categorias):
             celdas = [
                 categoria.nombre,
                 formato(categoria.margen_objetivo),
-                str(repo_categoria.cantidad_productos(self.conexion, categoria.id)),
+                str(catalogo.cantidad_productos(self.conexion, categoria.id)),
                 "Activa" if categoria.activo else "De baja",
             ]
             for columna, texto in enumerate(celdas):

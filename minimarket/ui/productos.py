@@ -23,9 +23,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minimarket.datos.repositorios import alicuota as repo_alicuota
-from minimarket.datos.repositorios import categoria as repo_categoria
-from minimarket.datos.repositorios import producto as repo_producto
 from minimarket.dominio.producto import Producto, precio_publico_bs
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo, tasa as servicio_tasa
@@ -88,8 +85,11 @@ class PantallaProductos(QWidget):
         self.productos = catalogo.buscar(
             self.conexion, self.busqueda.text(), solo_activos=solo_activos
         )
-        categorias = {c.id: c.nombre for c in repo_categoria.listar(self.conexion, False)}
-        alicuotas = {a.id: a for a in repo_alicuota.listar(self.conexion)}
+        categorias = {
+            c.id: c.nombre
+            for c in catalogo.listar_categorias(self.conexion, solo_activas=False)
+        }
+        alicuotas = {a.id: a for a in catalogo.listar_alicuotas(self.conexion)}
         tasa = servicio_tasa.tasa_del_dia(self.conexion)
         multiplo = servicio_tasa.multiplo_redondeo(self.conexion)
 
@@ -135,7 +135,7 @@ class PantallaProductos(QWidget):
             return
         if producto.activo:
             aviso = f"¿Dar de baja «{producto.nombre}»?"
-            if repo_producto.tiene_movimientos(self.conexion, producto.id):
+            if catalogo.tiene_movimientos(self.conexion, producto.id):
                 aviso += (
                     "\n\nTiene movimientos de inventario registrados: se conserva "
                     "el historico y solo deja de aparecer en las ventas."
@@ -171,10 +171,10 @@ class DialogoProducto(QDialog):
         self.codigo = QLineEdit()
         self.codigo.setPlaceholderText("Opcional")  # RF-03
         self.categoria = QComboBox()
-        for categoria in repo_categoria.listar(conexion):
+        for categoria in catalogo.listar_categorias(conexion):
             self.categoria.addItem(categoria.nombre, categoria.id)
         self.alicuota = QComboBox()
-        for alicuota in repo_alicuota.listar(conexion):
+        for alicuota in catalogo.listar_alicuotas(conexion):
             self.alicuota.addItem(
                 f"{alicuota.nombre} ({formato(alicuota.porcentaje)} %)", alicuota.id
             )
@@ -276,25 +276,32 @@ class DialogoProducto(QDialog):
         self.precio.setText(str(sugerido))
 
     def actualizar_informacion(self) -> None:
-        """Costo vigente, margen que deja el precio cargado y su valor en Bs."""
+        """Costo vigente, margen que deja el precio cargado y su valor en Bs.
+
+        Corre en cada tecla, asi que no puede levantar nada: sin permiso para
+        ver costos (RF-58) muestra solo el precio al publico.
+        """
         try:
             producto = self._leer()
         except ErrorDeCampo:
             self.informacion.setText("")
             return
         partes = []
-        costo = (
-            repo_producto.ultimo_costo(self.conexion, producto.id)
-            if producto.id
-            else None
-        )
-        partes.append(f"Ultimo costo: {formato(costo, 4)} USD")
-        margen = catalogo.calcular_margen(self.conexion, producto)
-        partes.append(
-            f"Margen resultante: {formato(margen)} %"
-            if margen is not None
-            else "Margen resultante: no determinable sin costo"
-        )
+        try:
+            costo = (
+                catalogo.ultimo_costo(self.conexion, producto.id)
+                if producto.id
+                else None
+            )
+            partes.append(f"Ultimo costo: {formato(costo, 4)} USD")
+            margen = catalogo.calcular_margen(self.conexion, producto)
+            partes.append(
+                f"Margen resultante: {formato(margen)} %"
+                if margen is not None
+                else "Margen resultante: no determinable sin costo"
+            )
+        except ErrorServicio:
+            pass
         tasa = servicio_tasa.tasa_del_dia(self.conexion)
         if tasa is not None:
             bs = precio_publico_bs(

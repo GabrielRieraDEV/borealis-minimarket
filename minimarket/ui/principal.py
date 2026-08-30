@@ -14,15 +14,12 @@ Las pestanas que el perfil no puede usar no se dibujan (RF-58). Eso es
 comodidad, no seguridad: quien corta cada operacion es la capa de servicios.
 """
 
-import os
 import sqlite3
 import sys
-from pathlib import Path
 
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QDialog, QMainWindow, QTabWidget
 
-from minimarket.datos import conexion as datos_conexion
 from minimarket.dominio.usuario import (
     CONFIGURAR,
     GESTIONAR_USUARIOS,
@@ -38,6 +35,7 @@ from minimarket.dominio.usuario import (
 )
 from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import tasa as servicio_tasa
+from minimarket.servicios import usuarios as servicio_usuarios
 from minimarket.ui.categorias import PantallaCategorias
 from minimarket.ui.comunes import avisar, formato
 from minimarket.ui.compras import PantallaCompras, PantallaProveedores
@@ -55,15 +53,6 @@ from minimarket.ui.usuarios import (
     PantallaUsuarios,
 )
 from minimarket.ui.venta import PantallaVenta
-
-
-def ruta_base() -> Path:
-    """Carpeta escribible por el usuario; el instalador la fija en la Fase 6."""
-    if os.environ.get("MINIMARKET_DB"):
-        return Path(os.environ["MINIMARKET_DB"])
-    carpeta = Path.home() / "Minimarket"
-    carpeta.mkdir(parents=True, exist_ok=True)
-    return carpeta / "minimarket.db"
 
 
 class VentanaPrincipal(QMainWindow):
@@ -145,8 +134,6 @@ class VentanaPrincipal(QMainWindow):
 
 def ingresar(conexion: sqlite3.Connection, padre=None) -> Usuario | None:
     """RF-56. Pide la clave inicial si el administrador todavia no tiene."""
-    from minimarket.servicios import usuarios as servicio_usuarios
-
     semilla = servicio_usuarios.necesita_clave_inicial(conexion)
     if semilla is not None:
         if DialogoClaveInicial(conexion, semilla, padre).exec() != QDialog.Accepted:
@@ -155,9 +142,12 @@ def ingresar(conexion: sqlite3.Connection, padre=None) -> Usuario | None:
     return dialogo.usuario if dialogo.exec() == QDialog.Accepted else None
 
 
-def main() -> int:
+def main(conexion: sqlite3.Connection) -> int:
+    """Muestra la aplicacion sobre una base ya abierta.
+
+    Quien la abre es `minimarket.__main__`: la interfaz no habla con `datos/`.
+    """
     aplicacion = QApplication(sys.argv)
-    conexion = datos_conexion.abrir(ruta_base())
     usuario = ingresar(conexion)
     if usuario is None:
         return 0
@@ -174,7 +164,3 @@ def main() -> int:
             "El respaldo diario fallo",
         )
     return aplicacion.exec()
-
-
-if __name__ == "__main__":
-    sys.exit(main())
