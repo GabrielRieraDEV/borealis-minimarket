@@ -1,7 +1,7 @@
 """Ventana principal y arranque de la aplicacion.
 
-Navegacion por teclado (RNF-08): F2 productos, F3 categorias, F5 tasa del dia,
-F8 compras, F10 proveedores, F11 existencias.
+Navegacion por teclado (RNF-08): F1 venta, F2 productos, F3 categorias,
+F5 tasa del dia, F8 compras, F10 proveedores, F11 existencias.
 """
 
 import os
@@ -20,6 +20,7 @@ from minimarket.ui.compras import PantallaCompras, PantallaProveedores
 from minimarket.ui.inventario import PantallaExistencias
 from minimarket.ui.productos import PantallaProductos
 from minimarket.ui.tasa import DialogoTasa
+from minimarket.ui.venta import PantallaVenta
 
 
 def ruta_base() -> Path:
@@ -35,11 +36,12 @@ class VentanaPrincipal(QMainWindow):
     def __init__(self, conexion: sqlite3.Connection) -> None:
         super().__init__()
         self.conexion = conexion
-        self.setWindowTitle("Minimarket — Catalogo, compras e inventario")
+        self.setWindowTitle("Minimarket — Venta, catalogo, compras e inventario")
         self.resize(1060, 660)
 
         self.pestanas = QTabWidget()
         for titulo, pantalla in (
+            ("&Venta (F1)", PantallaVenta(conexion)),
             ("&Productos (F2)", PantallaProductos(conexion)),
             ("&Categorias (F3)", PantallaCategorias(conexion)),
             ("Co&mpras (F8)", PantallaCompras(conexion)),
@@ -51,11 +53,12 @@ class VentanaPrincipal(QMainWindow):
         self.setCentralWidget(self.pestanas)
 
         menu = self.menuBar().addMenu("&Archivo")
-        menu.addAction(self._accion("&Productos", "F2", lambda: self._ir(0)))
-        menu.addAction(self._accion("&Categorias", "F3", lambda: self._ir(1)))
-        menu.addAction(self._accion("Co&mpras", "F8", lambda: self._ir(2)))
-        menu.addAction(self._accion("Pro&veedores", "F10", lambda: self._ir(3)))
-        menu.addAction(self._accion("&Existencias", "F11", lambda: self._ir(4)))
+        menu.addAction(self._accion("&Venta", "F1", lambda: self._ir(0)))
+        menu.addAction(self._accion("&Productos", "F2", lambda: self._ir(1)))
+        menu.addAction(self._accion("&Categorias", "F3", lambda: self._ir(2)))
+        menu.addAction(self._accion("Co&mpras", "F8", lambda: self._ir(3)))
+        menu.addAction(self._accion("Pro&veedores", "F10", lambda: self._ir(4)))
+        menu.addAction(self._accion("&Existencias", "F11", lambda: self._ir(5)))
         menu.addAction(self._accion("&Tasa del dia…", "F5", self.cargar_tasa))
         menu.addSeparator()
         menu.addAction(self._accion("&Salir", "Ctrl+Q", self.close))

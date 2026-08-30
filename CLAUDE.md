@@ -74,7 +74,7 @@ tests/
 
 ## Estado del proyecto
 
-Fase actual: **Fase 3 — Ventas y caja** (sin empezar).
+Fase actual: **Fase 4 — Usuarios, reportes y respaldo** (sin empezar).
 
 Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
 `datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
@@ -90,6 +90,12 @@ Fase 2 terminada: `dominio/inventario.py` (kardex, RN-06, RN-11 a RN-18),
 `dominio/compra.py`, `datos/repositorios/` (proveedor, compra, inventario,
 usuario), `servicios/compras.py`, `servicios/inventario.py` y la interfaz
 (`ui/compras.py`, `ui/inventario.py`). 160 pruebas.
+
+Fase 3 terminada: `dominio/venta.py` (RN-19 a RN-26, tambien `CajaSesion`),
+`datos/repositorios/` (venta —con detalle, pagos y cliente— y caja),
+`servicios/venta.py`, `servicios/caja.py`, `infra/impresora.py` y la interfaz
+(`ui/venta.py`, con el punto de venta, el cobro, el cliente fiscal y la caja).
+193 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -174,11 +180,41 @@ Resueltas en la Fase 2:
   no celda por celda. La edicion en sitio con selector de producto adentro de
   la grilla es varias veces mas codigo y peor con teclado.
 
+Resueltas en la Fase 3:
+
+- **Moneda del vuelto (RN-23)**: la regla deja elegirla, pero `venta` no tiene
+  columna donde guardarla. El vuelto se entrega en bolivares —que es el caso
+  del ejemplo C y el del pais— y el arqueo lo descuenta del efectivo en Bs,
+  ya redondeado por RN-10. Si alguna vez hace falta elegir, es una columna
+  `vuelto_moneda` mas una migracion con `PRAGMA user_version`.
+- **Arqueo (RN-26)**: `servicios/caja.py` calcula el esperado por medio y
+  moneda. Solo los renglones de efectivo llevan conteo fisico y diferencia,
+  que es lo unico que `caja_sesion` guarda; los medios electronicos se
+  informan sin conteo porque se concilian contra el banco.
+- **`dominio/venta.py` tambien tiene la caja** (`CajaSesion`, `LineaCierre`,
+  `ResumenCierre`): son dos dataclases y una resta, no dan para un modulo.
+- **Una linea de venta por producto, aunque la salida toque dos lotes**:
+  `venta_detalle.lote_id` queda en NULL en ese caso y el reparto real vive en
+  los movimientos, que es donde se consulta. Partir la linea cambiaria lo que
+  ve el cliente en la nota por un detalle de almacen.
+- **RF-27** se hace cumplir en `servicios/venta.py`: sin existencia no se
+  vende, salvo que un administrador autorice (`autorizado_por`), y entonces la
+  existencia queda negativa hasta que un ajuste la corrija.
+- **Anulacion (RN-25)**: hoy se valida el ROL de administrador
+  (`repo_usuario.es_administrador`), no la clave; la clave llega con la
+  autenticacion de la Fase 4 y entra en el mismo punto.
+- **Impresion (RF-39)**: `infra/impresora.nota_de_entrega` arma el texto y
+  `imprimir` lo manda; el corte esta pensado para que la maquina fiscal
+  reemplace solo el segundo paso. El destino sale de la clave de configuracion
+  `impresora.destino`; si esta vacia la venta ni intenta imprimir, y si la
+  impresora falla se avisa y se ofrece F9 para reimprimir.
+- **Interfaz del punto de venta**: un unico campo con el foco permanente. La
+  cantidad se teclea como `3*codigo` en vez de agregar un segundo campo por el
+  que haya que saltar, y escanear dos veces el mismo producto acumula en el
+  renglon que ya existe.
+
 Pendientes para fases posteriores:
 
-- **RF-27** (bloquear venta sin existencia) figura en el rango de la Fase 2
-  pero se hace cumplir en `servicios/venta.py`, Fase 3. La pieza que le falta
-  ya esta: `servicios.inventario.salida_por_lotes`.
 - **RN-17** (alerta de vencimiento) esta en `dominio/inventario.py` como
   `en_alerta_vencimiento`, sin consulta ni pantalla: RF-31 y RF-32 son Fase 5.
 - **Existencia en caché**: el modelo de datos la sugiere por volumen. Hoy es la

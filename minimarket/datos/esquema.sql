@@ -413,6 +413,7 @@ INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES
     ('precio.redondeo_bs',     '1',      'Multiplo de redondeo del precio en bolivares'),
     ('precio.modo_redondeo',   'ARRIBA', 'Sentido del redondeo comercial'),
     ('vencimiento.dias_aviso', '15',     'Dias de aviso por defecto'),
+    ('impresora.destino',      '',       'Impresora ESC/POS: nombre en Windows o ruta del dispositivo'),
     ('respaldo.ruta',          '',       'Carpeta de destino del respaldo diario'),
     ('respaldo.hora',          '22:00',  'Hora de ejecucion del respaldo'),
     ('bcv.url',                '',       'Origen de consulta de la tasa oficial');
