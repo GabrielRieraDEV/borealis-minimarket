@@ -74,7 +74,7 @@ tests/
 
 ## Estado del proyecto
 
-Fase actual: **Fase 5 — Pérdidas, vencimientos y resultados** (sin empezar).
+Fase actual: **Fase 6 — Empaquetado y puesta en marcha** (sin empezar).
 
 Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
 `datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
@@ -104,6 +104,14 @@ completo y reportes), `servicios/usuarios.py`, `servicios/reportes.py`,
 `infra/pdf.py` y la interfaz (`ui/usuarios.py`, `ui/reportes.py`,
 `ui/configuracion.py`, y `ui/principal.py` con el ingreso y las pestañas por
 perfil). 240 pruebas.
+
+Fase 5 terminada: `dominio/inventario.py` (`Perdida`, `MotivoPerdida`,
+`SaldoLoteProducto`), `dominio/reportes.py` (`GastoOperativo`,
+`ResultadoPeriodo`, RN-29), `datos/repositorios/` (perdida, gasto, y
+`ultimo_costo_a_fecha` en producto), `servicios/perdidas.py`,
+`servicios/gastos.py`, tres reportes más en `servicios/reportes.py` y la
+interfaz (`ui/perdidas.py` con el registro y el panel de vencimientos,
+`ui/gastos.py`, `ui/inicio.py`). 270 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -263,14 +271,46 @@ Resueltas en la Fase 4:
   de columnas; la pantalla y el PDF la recorren. Cuando el contador del cliente
   confirme el formato (cláusula 6.7), se toca ahí y en ningún otro lado.
 
+Resueltas en la Fase 5:
+
+- **RN-18 necesitaba una consulta nueva**: `v_ultimo_costo` siempre da el
+  último costo de todos. `repo_producto.ultimo_costo_a_fecha` acota por
+  `compra.fecha <= fecha`, para que una pérdida de marzo no se valorice con
+  una compra de julio.
+- **Producto sin compra previa a la fecha**: la pérdida se registra igual,
+  valorizada en cero, y `Perdida.determinable` es False. Mismo criterio que
+  `FilaGanancia.determinable` del margen sin costo.
+- **Una pérdida, varios lotes**: si la salida toca dos lotes, `perdida.lote_id`
+  queda en NULL y el reparto real vive en los movimientos. Es la misma decisión
+  que ya se había tomado para `venta_detalle.lote_id` en la Fase 3.
+- **RF-31 filtra en el dominio, no en SQL**: `repo_inventario.lotes_con_saldo`
+  devuelve todos los lotes vivos y `en_alerta_vencimiento` (RN-17) decide
+  cuáles avisan, con los días configurados de cada producto. El techo está
+  anotado con un `ponytail:` en el repositorio.
+- **`REGISTRAR_GASTOS`** se suma a `PERMISOS` (solo ADMIN). La sección 6 no
+  nombra los gastos operativos; van con el mismo criterio que las pérdidas.
+- **RF-54 se pide con `VER_EXISTENCIAS`**, no con `VER_REPORTES`: quien atiende
+  el mostrador tiene que poder ver qué se le está por vencer. La valorización
+  de esos lotes es otra cosa y va en el reporte de pérdidas, que sí es de
+  administrador.
+- **Gastos por mes, sin prorrateo (RN-29)**: `gastos.total` suma los `periodo`
+  entre `desde[:7]` y `hasta[:7]`. Un rango que arranca a mitad de agosto se
+  lleva el alquiler de agosto entero, que es exactamente lo que la regla pide.
+- **Atajos de teclado**: las teclas de función F4, F6, F7, F9 y F12 ya estaban
+  tomadas ADENTRO de las pantallas, así que la navegación de ventana nueva usa
+  Ctrl+letra. De paso se corrigió el F4 de «Reportes» que la Fase 4 había
+  puesto en conflicto con el F4 de «cliente» del punto de venta.
+- **`combo_productos`** se mudó de `ui/compras.py` a `ui/comunes.py` y ahora
+  pasa por `catalogo.listado_completo`. Era el único selector de producto y lo
+  necesitaba también la pantalla de pérdidas.
+
 Pendientes para fases posteriores:
 
-- **RN-17** (alerta de vencimiento) esta en `dominio/inventario.py` como
-  `en_alerta_vencimiento`, sin consulta ni pantalla: RF-31 y RF-32 son Fase 5.
-- **RF-53 a RF-55** (pérdidas, vencimientos y ganancia real) son Fase 5. Van a
-  entrar en `servicios/reportes.py` con el mismo patrón: consulta agregada en
-  `datos/repositorios/reportes.py`, fila en `dominio/reportes.py`, permiso
-  `REPORTES_GANANCIA` y un generador más en `ui/reportes.py`.
+- **`ui/productos.py` y `ui/compras.py` todavía importan `repo_producto`** para
+  tres consultas sueltas (`tiene_movimientos`, `ultimo_costo` y el nombre de un
+  producto en el detalle de compra). Es de las fases 1 y 2 y contradice la
+  regla de que `ui/` no habla con `datos/`. Son tres funciones de una línea en
+  `servicios/catalogo.py` cuando alguna fase toque esas pantallas.
 - **Clave del administrador en el primer arranque**: hoy la pide
   `ui/principal.ingresar` con `DialogoClaveInicial`, porque sin eso no se puede
   entrar. La Fase 6 lo mueve al asistente de instalación; el servicio

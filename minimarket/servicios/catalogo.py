@@ -97,6 +97,19 @@ def buscar(
     return repo_producto.buscar_por_nombre(conexion, texto, solo_activos=solo_activos)
 
 
+def listado_completo(
+    conexion: sqlite3.Connection, solo_activos: bool = True
+) -> list[Producto]:
+    """Todo el catalogo, para los selectores de producto de la interfaz.
+
+    `buscar` esta limitada a 200 filas porque responde a cada tecla; un
+    selector con autocompletado necesita el catalogo entero cargado.
+    """
+    return repo_producto.listar(
+        conexion, solo_activos=solo_activos, limite=1_000_000
+    )
+
+
 def calcular_precio(
     conexion: sqlite3.Connection, producto: Producto
 ) -> Decimal | None:

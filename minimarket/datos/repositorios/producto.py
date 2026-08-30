@@ -157,6 +157,27 @@ def ultimo_costo(
     return desde_entero(fila[0], ESCALA_PRECIO) if fila else None
 
 
+def ultimo_costo_a_fecha(
+    conexion: sqlite3.Connection, producto_id: int, fecha: str
+) -> Decimal | None:
+    """RN-18. Costo vigente en una fecha: la compra confirmada mas reciente
+    que no la supere.
+
+    No usa `v_ultimo_costo`, que siempre da el ultimo de todos: una perdida de
+    marzo no se puede valorizar con el costo de una compra de julio.
+    """
+    fila = conexion.execute(
+        """SELECT cd.costo_unitario_usd
+             FROM compra_detalle cd
+             JOIN compra c ON c.id = cd.compra_id
+            WHERE cd.producto_id = ? AND c.estado = 'CONFIRMADA' AND c.fecha <= ?
+            ORDER BY c.fecha DESC, cd.id DESC
+            LIMIT 1""",
+        (producto_id, fecha),
+    ).fetchone()
+    return desde_entero(fila[0], ESCALA_PRECIO) if fila else None
+
+
 def ultimos_costos(
     conexion: sqlite3.Connection, categoria_id: int
 ) -> dict[int, Decimal]:

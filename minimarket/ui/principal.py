@@ -1,7 +1,14 @@
 """Ventana principal y arranque de la aplicacion.
 
 Navegacion por teclado (RNF-08): F1 venta, F2 productos, F3 categorias,
-F4 reportes, F5 tasa del dia, F8 compras, F10 proveedores, F11 existencias.
+F5 tasa del dia, F8 compras, F10 proveedores, F11 existencias, y Ctrl+letra
+para el resto (Ctrl+I inicio, Ctrl+R reportes, Ctrl+P perdidas, Ctrl+G gastos,
+Ctrl+U usuarios, Ctrl+K configuracion).
+
+Las teclas de funcion que faltan estan tomadas ADENTRO de las pantallas: F4
+edita, F6 anula, F7 abre la caja o ajusta, F9 recalcula o reimprime, F12
+cobra. Un atajo de ventana con la misma tecla que uno de pantalla deja a Qt
+sin saber cual disparar, asi que la navegacion nueva va por Ctrl.
 
 Las pestanas que el perfil no puede usar no se dibujan (RF-58). Eso es
 comodidad, no seguridad: quien corta cada operacion es la capa de servicios.
@@ -22,6 +29,8 @@ from minimarket.dominio.usuario import (
     MODIFICAR_PRECIOS,
     NOMBRE_ROL,
     REGISTRAR_COMPRAS,
+    REGISTRAR_GASTOS,
+    REGISTRAR_PERDIDAS,
     REPORTE_CIERRE,
     VENDER,
     VER_EXISTENCIAS,
@@ -33,7 +42,10 @@ from minimarket.ui.categorias import PantallaCategorias
 from minimarket.ui.comunes import avisar, formato
 from minimarket.ui.compras import PantallaCompras, PantallaProveedores
 from minimarket.ui.configuracion import DialogoConfiguracion
+from minimarket.ui.gastos import PantallaGastos
+from minimarket.ui.inicio import PantallaInicio
 from minimarket.ui.inventario import PantallaExistencias
+from minimarket.ui.perdidas import PantallaPerdidas
 from minimarket.ui.productos import PantallaProductos
 from minimarket.ui.reportes import PantallaReportes
 from minimarket.ui.tasa import DialogoTasa
@@ -66,13 +78,16 @@ class VentanaPrincipal(QMainWindow):
         # (permiso, titulo, atajo, pantalla). Sin el permiso, la pestana no
         # existe: al cajero no le aparecen compras, catalogo ni reportes.
         posibles = [
+            (CONFIGURAR, "&Inicio", "Ctrl+I", PantallaInicio),
             (VENDER, "&Venta", "F1", PantallaVenta),
             (MODIFICAR_PRECIOS, "&Productos", "F2", PantallaProductos),
             (MODIFICAR_PRECIOS, "&Categorias", "F3", PantallaCategorias),
-            (REPORTE_CIERRE, "&Reportes", "F4", PantallaReportes),
             (REGISTRAR_COMPRAS, "Co&mpras", "F8", PantallaCompras),
             (REGISTRAR_COMPRAS, "Pro&veedores", "F10", PantallaProveedores),
             (VER_EXISTENCIAS, "&Existencias", "F11", PantallaExistencias),
+            (REGISTRAR_PERDIDAS, "&Perdidas", "Ctrl+P", PantallaPerdidas),
+            (REGISTRAR_GASTOS, "&Gastos", "Ctrl+G", PantallaGastos),
+            (REPORTE_CIERRE, "&Reportes", "Ctrl+R", PantallaReportes),
             (GESTIONAR_USUARIOS, "&Usuarios", "Ctrl+U", PantallaUsuarios),
         ]
         self.pestanas = QTabWidget()

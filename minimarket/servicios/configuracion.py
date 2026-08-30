@@ -166,6 +166,12 @@ def restaurar(conexion: sqlite3.Connection, origen: str) -> None:
         )
 
 
+def ultimo_respaldo(conexion: sqlite3.Connection) -> infra_respaldo.Registro | None:
+    """RF-62. El ultimo intento, para el panel de alertas."""
+    servicio_usuarios.exigir(conexion, CONFIGURAR)
+    return infra_respaldo.ultimo(conexion)
+
+
 def historial(conexion: sqlite3.Connection) -> list[infra_respaldo.Registro]:
     """RF-62. Todos los intentos, con su resultado."""
     servicio_usuarios.exigir(conexion, CONFIGURAR)

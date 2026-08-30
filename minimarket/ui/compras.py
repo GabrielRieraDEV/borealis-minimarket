@@ -31,7 +31,14 @@ from minimarket.dominio.compra import ANULADA, Compra, LineaCompra, Proveedor
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import compras, usuario_actual
 from minimarket.servicios import tasa as servicio_tasa
-from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
+from minimarket.ui.comunes import (
+    ErrorDeCampo,
+    a_decimal,
+    avisar,
+    combo_productos,
+    confirmar,
+    formato,
+)
 
 COLUMNAS = ["Fecha", "Documento", "Proveedor", "Total USD", "Saldo USD", "Estado"]
 COLUMNAS_LINEA = [
@@ -44,18 +51,6 @@ COLUMNAS_LINEA = [
     "Costo unit. USD",
     "Total USD",
 ]
-
-
-def _combo_productos(conexion: sqlite3.Connection) -> QComboBox:
-    """Selector con autocompletado por nombre; el catalogo entra entero."""
-    combo = QComboBox()
-    combo.setEditable(True)
-    combo.setInsertPolicy(QComboBox.NoInsert)
-    combo.completer().setFilterMode(Qt.MatchContains)
-    for producto in repo_producto.listar(conexion, limite=1_000_000):
-        combo.addItem(producto.nombre, producto.id)
-    combo.setCurrentIndex(-1)
-    return combo
 
 
 class PantallaCompras(QWidget):
@@ -261,7 +256,7 @@ class DialogoCompra(QDialog):
     # adentro es varias veces mas codigo y peor con teclado. Si el minimarket
     # pide corregir una linea sin rehacerla, ahi si conviene.
     def _carga_de_lineas(self) -> QHBoxLayout:
-        self.producto = _combo_productos(self.conexion)
+        self.producto = combo_productos(self.conexion)
         self.presentaciones = QLineEdit("1")
         self.presentaciones.setMaximumWidth(70)
         self.unidades = QLineEdit("1")  # RN-06: por linea, no en la ficha

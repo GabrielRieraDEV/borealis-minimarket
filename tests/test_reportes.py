@@ -1,13 +1,20 @@
-"""Reportes del negocio (RF-48 a RF-52, RN-27, RN-28, RN-30, RN-31)."""
+"""Reportes del negocio (RF-47 a RF-55 y RN-27 a RN-31)."""
 
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 
+from minimarket.datos.repositorios import perdida as repo_perdida
 from minimarket.dominio.dinero import convertir_a_bs
+from minimarket.dominio.reportes import ALQUILER
+from minimarket.dominio.usuario import CAJERO, Usuario
 from minimarket.dominio.venta import EFECTIVO, PUNTO, Venta
 from minimarket.servicios import caja as servicio_caja
-from minimarket.servicios import cerrar_sesion
+from minimarket.servicios import cerrar_sesion, iniciar_sesion
+from minimarket.servicios import gastos as servicio_gastos
+from minimarket.servicios import perdidas as servicio_perdidas
+from minimarket.servicios import usuarios as servicio_usuarios
 from minimarket.servicios import inventario as servicio_inventario
 from minimarket.servicios import reportes as servicio_reportes
 from minimarket.servicios import tasa as servicio_tasa
@@ -269,3 +276,117 @@ def test_el_cmv_redondea_medio_hacia_arriba_por_linea(conexion, categoria, exent
     desde, hasta = rango()
     fila = servicio_reportes.ganancia_por_producto(conexion, desde, hasta)[0]
     assert fila.costo_usd == Decimal("0.01")
+
+
+# --- RF-47 / RF-53 / RF-54 / RN-29 ------------------------------------------
+
+
+def test_rf53_las_perdidas_se_agrupan_por_motivo(conexion, dia_de_ventas):
+    danado = repo_perdida.motivo_por_codigo(conexion, "DANADO").id
+    faltante = repo_perdida.motivo_por_codigo(conexion, "FALTANTE").id
+    servicio_perdidas.registrar(conexion, dia_de_ventas["arroz"].id, Decimal(1), danado)
+    servicio_perdidas.registrar(conexion, dia_de_ventas["arroz"].id, Decimal(2), danado)
+    servicio_perdidas.registrar(
+        conexion, dia_de_ventas["jabon"].id, Decimal(4), faltante
+    )
+
+    desde, hasta = rango()
+    filas = {
+        f.motivo: f
+        for f in servicio_reportes.perdidas_por_motivo(conexion, desde, hasta)
+    }
+    assert filas["Producto danado o roto"].cantidad == Decimal("3.000")
+    assert filas["Producto danado o roto"].costo_usd == Decimal("3.60")  # 3 x 1,20
+    assert filas["Faltante o sustraccion"].costo_usd == Decimal("2.00")  # 4 x 0,50
+
+
+def test_rf54_el_reporte_de_vencimientos_lo_ve_tambien_el_cajero(
+    conexion, categoria, exento
+):
+    """Quien atiende el mostrador tiene que ver que se le esta por vencer."""
+    producto = alta(conexion, categoria, exento, maneja_vencimiento=True)
+    vence = (date.today() + timedelta(days=3)).isoformat()
+    registrar_compra(
+        conexion, producto.id, Decimal("1.0000"), fecha_vencimiento=vence
+    )
+    cajero_id = servicio_usuarios.crear(
+        conexion, Usuario(usuario="cajera", nombre="Cajera", rol=CAJERO), "clave1234"
+    )
+    iniciar_sesion(servicio_usuarios.obtener(conexion, cajero_id))
+
+    lotes = servicio_reportes.proximos_a_vencer(conexion)
+    assert [lote.fecha_vencimiento for lote in lotes] == [vence]
+
+
+def test_rf47_la_ganancia_real_coincide_con_la_cuenta_a_mano(
+    conexion, dia_de_ventas
+):
+    """RN-29 sobre datos conocidos, verificados renglon por renglon.
+
+    Ventas validas del dia:
+      arroz exento  3 x 2,00      -> ingreso 6,00 · costo 3 x 1,20 = 3,60
+      jabon 16%     2 x 1,16=2,32 -> ingreso 2,00 (sin IVA) · costo 2 x 0,50 = 1,00
+    La tercera venta esta anulada y no cuenta (RN-25).
+    """
+    perdida_arroz = repo_perdida.motivo_por_codigo(conexion, "DANADO").id
+    servicio_perdidas.registrar(
+        conexion, dia_de_ventas["arroz"].id, Decimal(1), perdida_arroz
+    )
+    servicio_gastos.registrar(
+        conexion, ALQUILER, "Alquiler del mes", Decimal("0.80")
+    )
+
+    desde, hasta = rango()
+    resultado = servicio_reportes.ganancia_real(conexion, desde, hasta)
+
+    assert resultado.ingreso_usd == Decimal("8.00")  # 6,00 + 2,00
+    assert resultado.costo_usd == Decimal("4.60")  # 3,60 + 1,00 (RN-27)
+    assert resultado.ganancia_bruta_usd == Decimal("3.40")  # RN-28
+    assert resultado.perdidas_usd == Decimal("1.20")  # 1 x 1,20 (RN-18)
+    assert resultado.gastos_usd == Decimal("0.80")
+    assert resultado.ganancia_real_usd == Decimal("1.40")  # RN-29
+    assert resultado.margen_real_pct == Decimal("17.50")  # 1,40 / 8,00
+
+
+def test_rn29_una_perdida_baja_la_ganancia_real_del_periodo(conexion, dia_de_ventas):
+    desde, hasta = rango()
+    antes = servicio_reportes.ganancia_real(conexion, desde, hasta)
+    assert antes.perdidas_usd == Decimal(0)
+    assert antes.ganancia_real_usd == antes.ganancia_bruta_usd
+
+    servicio_perdidas.registrar(
+        conexion,
+        dia_de_ventas["arroz"].id,
+        Decimal(2),
+        repo_perdida.motivo_por_codigo(conexion, "DANADO").id,
+    )
+
+    despues = servicio_reportes.ganancia_real(conexion, desde, hasta)
+    # La ganancia BRUTA no se mueve: la perdida no es una venta.
+    assert despues.ganancia_bruta_usd == antes.ganancia_bruta_usd
+    assert despues.perdidas_usd == Decimal("2.40")
+    assert despues.ganancia_real_usd == antes.ganancia_real_usd - Decimal("2.40")
+
+
+def test_los_gastos_de_otro_mes_no_entran_en_el_periodo(conexion, dia_de_ventas):
+    servicio_gastos.registrar(
+        conexion, ALQUILER, "Mes que no toca", Decimal(999), periodo="2020-01"
+    )
+    desde, hasta = rango()
+    assert servicio_reportes.ganancia_real(conexion, desde, hasta).gastos_usd == (
+        Decimal(0)
+    )
+
+
+def test_rf58_el_cajero_no_ve_la_ganancia_real_ni_las_perdidas(conexion):
+    cajero_id = servicio_usuarios.crear(
+        conexion, Usuario(usuario="cajera", nombre="Cajera", rol=CAJERO), "clave1234"
+    )
+    iniciar_sesion(servicio_usuarios.obtener(conexion, cajero_id))
+    desde, hasta = rango()
+    for operacion in (
+        servicio_reportes.ganancia_real,
+        servicio_reportes.perdidas_por_motivo,
+    ):
+        with pytest.raises(servicio_usuarios.ErrorPermiso):
+            operacion(conexion, desde, hasta)

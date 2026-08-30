@@ -8,6 +8,7 @@ tienen por que saber nada de Decimales ni de reglas de negocio.
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
@@ -29,6 +30,7 @@ from minimarket.dominio.reportes import COLUMNAS_LIBRO
 from minimarket.dominio.usuario import (
     REPORTE_CIERRE,
     REPORTES_GANANCIA,
+    VER_EXISTENCIAS,
     VER_REPORTES,
 )
 from minimarket.dominio.venta import EFECTIVO
@@ -77,6 +79,9 @@ class PantallaReportes(QWidget):
             ),
             (REPORTE_CIERRE, "Cierre de caja (RF-51)", self._cierre),
             (VER_REPORTES, "Libro de ventas (RF-52)", self._libro),
+            (REPORTES_GANANCIA, "Perdidas por motivo (RF-53)", self._perdidas),
+            (VER_EXISTENCIAS, "Proximos a vencer (RF-54)", self._vencimientos),
+            (REPORTES_GANANCIA, "Ganancia real del periodo (RF-55)", self._real),
         ):
             if servicio_usuarios.tiene_permiso(conexion, permiso):
                 self.tipo.addItem(etiqueta, generador)
@@ -304,6 +309,76 @@ class PantallaReportes(QWidget):
                 f"Ingreso {formato(ingreso)} USD",
                 f"CMV {formato(costo)} USD",
                 f"Ganancia bruta {formato(ingreso - costo)} USD",
+            ],
+        )
+
+    def _perdidas(self) -> Reporte:
+        desde, hasta = self._rango()
+        filas = servicio_reportes.perdidas_por_motivo(self.conexion, desde, hasta)
+        total = sum((f.costo_usd for f in filas), Decimal(0))
+        return Reporte(
+            titulo="Perdidas por motivo",
+            subtitulo=(
+                f"Del {desde} al {hasta}, al costo vigente en la fecha de cada "
+                "baja (RN-18)"
+            ),
+            columnas=["Motivo", "Cantidad", "Costo USD"],
+            filas=[
+                [fila.motivo, formato(fila.cantidad, 3), formato(fila.costo_usd)]
+                for fila in filas
+            ],
+            pie=[f"Total perdido {formato(total)} USD"],
+        )
+
+    def _vencimientos(self) -> Reporte:
+        lotes = servicio_reportes.proximos_a_vencer(self.conexion)
+        expuesto = sum((lote.valorizacion for lote in lotes), Decimal(0))
+        return Reporte(
+            titulo="Productos proximos a vencer",
+            subtitulo=(
+                f"Al {date.today().isoformat()}, dentro del plazo de aviso de "
+                "cada producto (RN-17)"
+            ),
+            columnas=["Producto", "Vence", "Dias", "Cantidad", "Valorizado USD"],
+            filas=[
+                [
+                    lote.producto,
+                    lote.fecha_vencimiento,
+                    str(lote.dias_para_vencer()),
+                    formato(lote.cantidad, 3),
+                    formato(lote.valorizacion),
+                ]
+                for lote in lotes
+            ],
+            pie=[
+                f"{len(lotes)} lotes en alerta",
+                f"{sum(1 for lote in lotes if lote.vencido())} ya vencidos",
+                f"{formato(expuesto)} USD en juego",
+            ],
+        )
+
+    def _real(self) -> Reporte:
+        desde, hasta = self._rango()
+        resultado = servicio_reportes.ganancia_real(self.conexion, desde, hasta)
+        # El reporte es una cuenta corta: cada renglon es un termino de RN-29.
+        renglones = [
+            ("Ingreso sin IVA (base imponible + exento)", resultado.ingreso_usd),
+            ("Costo de la mercancia vendida (RN-27)", -resultado.costo_usd),
+            ("Ganancia bruta (RN-28)", resultado.ganancia_bruta_usd),
+            ("Perdidas del periodo (RN-18)", -resultado.perdidas_usd),
+            ("Gastos operativos", -resultado.gastos_usd),
+            ("Ganancia real (RN-29)", resultado.ganancia_real_usd),
+        ]
+        return Reporte(
+            titulo="Ganancia real del periodo",
+            subtitulo=f"Del {desde} al {hasta}. Los gastos no se prorratean.",
+            columnas=["Concepto", "USD"],
+            filas=[[concepto, formato(monto)] for concepto, monto in renglones],
+            pie=[
+                f"Ganancia real {formato(resultado.ganancia_real_usd)} USD",
+                f"Margen real {formato(resultado.margen_real_pct)} %"
+                if resultado.margen_real_pct is not None
+                else "Margen real no determinable: no hubo ventas",
             ],
         )
 

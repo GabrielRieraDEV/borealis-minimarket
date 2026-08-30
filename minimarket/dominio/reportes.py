@@ -85,6 +85,78 @@ class FilaGanancia:
         )
 
 
+# --- Perdidas y gastos (RF-46, RF-53, RN-18, RN-29) -------------------------
+
+
+@dataclass(frozen=True)
+class GastoOperativo:
+    """RF-46. `periodo` es el mes al que corresponde, en formato AAAA-MM.
+
+    La fecha de carga y el periodo son cosas distintas: el alquiler de agosto
+    se paga en septiembre y sigue siendo un gasto de agosto.
+    """
+
+    categoria: str
+    descripcion: str
+    monto_usd: Decimal
+    periodo: str
+    fecha: str
+    usuario_id: int
+    id: int | None = None
+
+
+# `gasto_operativo.categoria`. La lista la fija el CHECK del esquema.
+ALQUILER = "ALQUILER"
+SERVICIOS = "SERVICIOS"
+SUELDOS = "SUELDOS"
+OTROS = "OTROS"
+CATEGORIAS_GASTO = [ALQUILER, SERVICIOS, SUELDOS, OTROS]
+
+
+@dataclass(frozen=True)
+class FilaPerdida:
+    """RF-53. Perdidas agrupadas por motivo en un periodo."""
+
+    motivo_id: int
+    motivo: str
+    cantidad: Decimal
+    costo_usd: Decimal
+
+
+@dataclass(frozen=True)
+class ResultadoPeriodo:
+    """RF-47 / RN-29. La ganancia real, con todo lo que la come.
+
+    `gastos_usd` NO se prorratea entre productos: se resta del resultado global
+    del periodo, que es lo que la regla pide expresamente.
+    """
+
+    desde: str
+    hasta: str
+    ingreso_usd: Decimal  # base imponible + exento
+    costo_usd: Decimal  # CMV (RN-27)
+    perdidas_usd: Decimal  # RN-18
+    gastos_usd: Decimal
+
+    @property
+    def ganancia_bruta_usd(self) -> Decimal:
+        """RN-28. El IVA queda afuera: no es ingreso del negocio."""
+        return self.ingreso_usd - self.costo_usd
+
+    @property
+    def ganancia_real_usd(self) -> Decimal:
+        """RN-29."""
+        return self.ganancia_bruta_usd - self.perdidas_usd - self.gastos_usd
+
+    @property
+    def margen_real_pct(self) -> Decimal | None:
+        if self.ingreso_usd == 0:
+            return None
+        return redondear(
+            self.ganancia_real_usd / self.ingreso_usd * 100, DECIMALES_PORCENTAJE
+        )
+
+
 # --- Libro de ventas (RF-52, RN-31) -----------------------------------------
 
 # El formato definitivo lo confirma el contador del cliente (clausula 6.7 del

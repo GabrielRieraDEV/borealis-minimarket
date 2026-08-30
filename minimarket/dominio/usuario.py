@@ -30,6 +30,7 @@ MODIFICAR_PRECIOS = "MODIFICAR_PRECIOS"
 REGISTRAR_COMPRAS = "REGISTRAR_COMPRAS"
 AJUSTAR_INVENTARIO = "AJUSTAR_INVENTARIO"
 REGISTRAR_PERDIDAS = "REGISTRAR_PERDIDAS"
+REGISTRAR_GASTOS = "REGISTRAR_GASTOS"
 ANULAR_VENTAS = "ANULAR_VENTAS"
 REPORTES_GANANCIA = "REPORTES_GANANCIA"
 VER_REPORTES = "VER_REPORTES"
@@ -46,6 +47,10 @@ CONFIGURAR = "CONFIGURAR"
 # valorizado y el libro de ventas: los tres exponen el movimiento completo del
 # negocio y ninguno es necesario para atender la caja. El cierre de la propia
 # sesion (RF-51) queda abierto al cajero, como pide la tabla.
+#
+# `REGISTRAR_GASTOS` tampoco figura: los gastos operativos (RF-46) son de la
+# Fase 5 y la seccion 6 no los nombra. Van con el mismo criterio que las
+# perdidas, que si estan y son de administrador.
 PERMISOS: dict[str, tuple[frozenset[str], str]] = {
     VENDER: (frozenset({ADMIN, CAJERO}), "registrar ventas"),
     OPERAR_CAJA: (frozenset({ADMIN, CAJERO}), "abrir y cerrar la caja"),
@@ -55,6 +60,7 @@ PERMISOS: dict[str, tuple[frozenset[str], str]] = {
     REGISTRAR_COMPRAS: (frozenset({ADMIN}), "registrar compras"),
     AJUSTAR_INVENTARIO: (frozenset({ADMIN}), "ajustar el inventario"),
     REGISTRAR_PERDIDAS: (frozenset({ADMIN}), "registrar perdidas"),
+    REGISTRAR_GASTOS: (frozenset({ADMIN}), "registrar gastos operativos"),
     ANULAR_VENTAS: (frozenset({ADMIN}), "anular ventas"),
     REPORTES_GANANCIA: (frozenset({ADMIN}), "consultar reportes de ganancia"),
     VER_REPORTES: (frozenset({ADMIN}), "consultar los reportes del negocio"),

@@ -18,6 +18,7 @@ from minimarket.dominio.inventario import (
     Lote,
     Movimiento,
     SaldoLote,
+    SaldoLoteProducto,
 )
 
 
@@ -63,6 +64,23 @@ def lotes_de(conexion: sqlite3.Connection, producto_id: int) -> list[Lote]:
     ]
 
 
+def obtener_lote(conexion: sqlite3.Connection, lote_id: int) -> Lote | None:
+    fila = conexion.execute(
+        "SELECT id, producto_id, codigo, fecha_vencimiento FROM lote WHERE id = ?",
+        (lote_id,),
+    ).fetchone()
+    return (
+        Lote(
+            id=fila["id"],
+            producto_id=fila["producto_id"],
+            codigo=fila["codigo"],
+            fecha_vencimiento=fila["fecha_vencimiento"],
+        )
+        if fila
+        else None
+    )
+
+
 def saldos_por_lote(conexion: sqlite3.Connection, producto_id: int) -> list[SaldoLote]:
     """RN-15. Existencia viva de cada lote, la mas proxima a vencer primero."""
     return [
@@ -82,6 +100,59 @@ def saldos_por_lote(conexion: sqlite3.Connection, producto_id: int) -> list[Sald
                HAVING SUM(m.cantidad) > 0
                 ORDER BY l.fecha_vencimiento, m.lote_id""",
             (producto_id,),
+        )
+    ]
+
+
+def saldo_de_lote(conexion: sqlite3.Connection, lote_id: int) -> Decimal:
+    """RF-32. Lo que queda vivo de un lote, para darlo de baja entero."""
+    fila = conexion.execute(
+        """SELECT COALESCE(SUM(cantidad), 0) FROM movimiento_inventario
+            WHERE lote_id = ?""",
+        (lote_id,),
+    ).fetchone()
+    return desde_entero(fila[0], ESCALA_CANTIDAD)
+
+
+def lotes_con_saldo(conexion: sqlite3.Connection) -> list[SaldoLoteProducto]:
+    """RF-31 / RF-54. Todos los lotes con existencia viva, con su producto.
+
+    ponytail: devuelve TODOS y el filtro por proximidad lo hace RN-17 en
+    `dominio/inventario.en_alerta_vencimiento`, que es donde esta escrita la
+    regla una sola vez. Solo los productos con control de vencimiento tienen
+    lotes, asi que son unos pocos cientos. Si algun dia pesa, el limite entra
+    aca como `l.fecha_vencimiento <= date('now','localtime','+N days')` y la
+    regla sigue viviendo en el dominio.
+    """
+    return [
+        SaldoLoteProducto(
+            lote_id=f["lote_id"],
+            producto_id=f["producto_id"],
+            producto=f["producto"],
+            codigo=f["codigo"],
+            fecha_vencimiento=f["fecha_vencimiento"],
+            cantidad=desde_entero(f["cantidad"], ESCALA_CANTIDAD),
+            dias_alerta=f["dias_alerta_venc"],
+            ultimo_costo=(
+                None
+                if f["ultimo_costo"] is None
+                else desde_entero(f["ultimo_costo"], ESCALA_PRECIO)
+            ),
+        )
+        for f in conexion.execute(
+            """SELECT l.id AS lote_id, l.codigo, l.fecha_vencimiento,
+                      p.id AS producto_id, p.nombre AS producto,
+                      p.dias_alerta_venc,
+                      uc.costo_unitario_usd AS ultimo_costo,
+                      SUM(m.cantidad) AS cantidad
+                 FROM movimiento_inventario m
+                 JOIN lote l     ON l.id = m.lote_id
+                 JOIN producto p ON p.id = l.producto_id
+                 LEFT JOIN v_ultimo_costo uc ON uc.producto_id = p.id
+                WHERE p.activo = 1
+                GROUP BY l.id
+               HAVING SUM(m.cantidad) > 0
+                ORDER BY l.fecha_vencimiento, p.nombre"""
         )
     ]
 

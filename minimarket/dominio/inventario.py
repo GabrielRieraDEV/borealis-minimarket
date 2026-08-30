@@ -96,6 +96,80 @@ class ExistenciaProducto:
         return redondear(self.existencia * (self.ultimo_costo or 0), DECIMALES_TOTAL)
 
 
+@dataclass(frozen=True)
+class MotivoPerdida:
+    """RF-29. Los cinco de fabrica los siembra `esquema.sql`; se pueden sumar."""
+
+    codigo: str
+    nombre: str
+    activo: bool = True
+    id: int | None = None
+
+
+@dataclass(frozen=True)
+class Perdida:
+    """RF-28 / RN-18. `costo_unitario_usd` es el vigente EN LA FECHA de la baja.
+
+    ponytail: vive en este modulo y no en `dominio/perdida.py`. Una perdida es
+    una salida de inventario que se valoriza con `valorizar`, que ya esta aca;
+    un archivo para dos dataclases duplicaria los imports sin agregar nada.
+    """
+
+    producto_id: int
+    motivo_id: int
+    cantidad: Decimal
+    costo_unitario_usd: Decimal
+    fecha: str
+    usuario_id: int
+    lote_id: int | None = None
+    observacion: str | None = None
+    # Solo los completa la consulta; el alta no los necesita.
+    producto: str | None = None
+    motivo: str | None = None
+    id: int | None = None
+
+    @property
+    def costo_total_usd(self) -> Decimal:
+        """RN-18. Lo que la perdida le resta al resultado del periodo."""
+        return valorizar(self.cantidad, self.costo_unitario_usd)
+
+    @property
+    def determinable(self) -> bool:
+        """El producto sin compra previa a la fecha se valoriza en cero."""
+        return self.costo_unitario_usd > 0
+
+
+@dataclass(frozen=True)
+class SaldoLoteProducto:
+    """RF-31 / RF-54. Un lote con existencia viva y su producto."""
+
+    lote_id: int
+    producto_id: int
+    producto: str
+    codigo: str | None
+    fecha_vencimiento: str
+    cantidad: Decimal
+    dias_alerta: int
+    ultimo_costo: Decimal | None = None
+
+    def dias_para_vencer(self, hoy: str | None = None) -> int:
+        """Negativo si ya vencio."""
+        referencia = date.fromisoformat(hoy) if hoy else date.today()
+        return (date.fromisoformat(self.fecha_vencimiento) - referencia).days
+
+    def en_alerta(self, hoy: str | None = None) -> bool:
+        """RN-17, con los dias configurados para ESE producto."""
+        return en_alerta_vencimiento(self.fecha_vencimiento, self.dias_alerta, hoy)
+
+    def vencido(self, hoy: str | None = None) -> bool:
+        return self.dias_para_vencer(hoy) < 0
+
+    @property
+    def valorizacion(self) -> Decimal:
+        """Lo que se pierde si el lote se da de baja entero (RN-18)."""
+        return valorizar(self.cantidad, self.ultimo_costo or Decimal(0))
+
+
 def costo_unitario(costo_presentacion: Decimal, unidades: Decimal) -> Decimal:
     """RN-06. Costo de la presentacion dividido sus unidades.
 

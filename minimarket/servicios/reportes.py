@@ -16,19 +16,24 @@ from decimal import Decimal
 from minimarket.datos.repositorios import caja as repo_caja
 from minimarket.datos.repositorios import inventario as repo_inventario
 from minimarket.datos.repositorios import reportes as repo_reportes
-from minimarket.dominio.inventario import ExistenciaProducto
+from minimarket.dominio.inventario import ExistenciaProducto, SaldoLoteProducto
 from minimarket.dominio.reportes import (
     FilaGanancia,
+    FilaPerdida,
     Libro,
+    ResultadoPeriodo,
     ResumenVentas,
 )
 from minimarket.dominio.usuario import (
     REPORTE_CIERRE,
     REPORTES_GANANCIA,
+    VER_EXISTENCIAS,
     VER_REPORTES,
 )
 from minimarket.dominio.venta import ResumenCierre
 from minimarket.servicios import ErrorServicio, caja, usuario_actual
+from minimarket.servicios import gastos as servicio_gastos
+from minimarket.servicios import perdidas as servicio_perdidas
 from minimarket.servicios import usuarios as servicio_usuarios
 
 
@@ -91,6 +96,45 @@ def libro_de_ventas(conexion: sqlite3.Connection, desde: str, hasta: str) -> Lib
     servicio_usuarios.exigir(conexion, VER_REPORTES)
     _validar_rango(desde, hasta)
     return Libro(desde, hasta, repo_reportes.libro_de_ventas(conexion, desde, hasta))
+
+
+def perdidas_por_motivo(
+    conexion: sqlite3.Connection, desde: str, hasta: str
+) -> list[FilaPerdida]:
+    """RF-53 / RN-18. Valorizadas al costo vigente en la fecha de cada baja."""
+    servicio_usuarios.exigir(conexion, REPORTES_GANANCIA)
+    _validar_rango(desde, hasta)
+    return repo_reportes.perdidas_por_motivo(conexion, desde, hasta)
+
+
+def proximos_a_vencer(
+    conexion: sqlite3.Connection, hoy: str | None = None
+) -> list[SaldoLoteProducto]:
+    """RF-54 / RN-17. Lotes con existencia dentro del plazo de aviso.
+
+    Se pide con `VER_EXISTENCIAS` y no con `VER_REPORTES`: quien atiende el
+    mostrador tiene que poder ver que se le esta por vencer. La valorizacion
+    de cada lote va aparte, en el reporte de perdidas.
+    """
+    servicio_usuarios.exigir(conexion, VER_EXISTENCIAS)
+    return servicio_perdidas.proximos_a_vencer(conexion, hoy)
+
+
+def ganancia_real(
+    conexion: sqlite3.Connection, desde: str, hasta: str
+) -> ResultadoPeriodo:
+    """RF-47 / RF-55 / RN-29. Lo que queda despues de perdidas y gastos."""
+    servicio_usuarios.exigir(conexion, REPORTES_GANANCIA)
+    _validar_rango(desde, hasta)
+    ingreso, costo = repo_reportes.ingreso_y_cmv(conexion, desde, hasta)
+    return ResultadoPeriodo(
+        desde=desde,
+        hasta=hasta,
+        ingreso_usd=ingreso,
+        costo_usd=costo,
+        perdidas_usd=repo_reportes.total_perdidas(conexion, desde, hasta),
+        gastos_usd=servicio_gastos.total(conexion, desde, hasta),
+    )
 
 
 def cierre_de_caja(conexion: sqlite3.Connection, sesion_id: int) -> ResumenCierre:

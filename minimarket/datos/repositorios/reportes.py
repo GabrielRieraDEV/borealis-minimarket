@@ -6,6 +6,7 @@ donde figuran con importes en cero (RN-31).
 """
 
 import sqlite3
+from decimal import Decimal
 
 from minimarket.dominio.dinero import (
     ESCALA_CANTIDAD,
@@ -16,6 +17,7 @@ from minimarket.dominio.dinero import (
 from minimarket.dominio.reportes import (
     FilaGanancia,
     FilaLibro,
+    FilaPerdida,
     ResumenVentas,
     TotalPorMedio,
 )
@@ -186,6 +188,70 @@ def libro_de_ventas(
             _limites(desde, hasta),
         )
     ]
+
+# --- Perdidas del periodo (RF-53, RN-18) ------------------------------------
+
+# Misma cuenta que _CMV pero sobre `perdida`: Σ redondear(cantidad × costo, 2)
+# con enteros y ROUND_HALF_UP, igual que `Perdida.costo_total_usd`.
+_COSTO_PERDIDA = "SUM((pe.cantidad * pe.costo_unitario_usd + 50000) / 100000)"
+
+
+def perdidas_por_motivo(
+    conexion: sqlite3.Connection, desde: str, hasta: str
+) -> list[FilaPerdida]:
+    """RF-53. Agrupadas por motivo, valorizadas al costo congelado (RN-18)."""
+    return [
+        FilaPerdida(
+            motivo_id=f["motivo_id"],
+            motivo=f["motivo"],
+            cantidad=desde_entero(f["cantidad"], ESCALA_CANTIDAD),
+            costo_usd=desde_entero(f["costo"], ESCALA_TOTAL),
+        )
+        for f in conexion.execute(
+            f"""SELECT m.id AS motivo_id, m.nombre AS motivo,
+                       SUM(pe.cantidad) AS cantidad,
+                       {_COSTO_PERDIDA}  AS costo
+                  FROM perdida pe
+                  JOIN motivo_perdida m ON m.id = pe.motivo_id
+                 WHERE pe.fecha >= ? AND pe.fecha <= ?
+                 GROUP BY m.id
+                 ORDER BY costo DESC""",
+            (desde, hasta),
+        )
+    ]
+
+
+def total_perdidas(conexion: sqlite3.Connection, desde: str, hasta: str) -> Decimal:
+    """RN-29. Lo que las perdidas del periodo le restan al resultado."""
+    fila = conexion.execute(
+        f"""SELECT COALESCE({_COSTO_PERDIDA}, 0) AS costo
+              FROM perdida pe WHERE pe.fecha >= ? AND pe.fecha <= ?""",
+        (desde, hasta),
+    ).fetchone()
+    return desde_entero(fila["costo"], ESCALA_TOTAL)
+
+
+def ingreso_y_cmv(
+    conexion: sqlite3.Connection, desde: str, hasta: str
+) -> tuple[Decimal, Decimal]:
+    """RN-27 / RN-28. Ingreso sin IVA y costo de la mercancia vendida.
+
+    Es la misma cuenta que `ganancia_por_producto` sin agrupar; se separa para
+    que RF-47 no tenga que sumar filas que no va a mostrar.
+    """
+    fila = conexion.execute(
+        f"""SELECT COALESCE({_INGRESO}, 0) AS ingreso,
+                   COALESCE({_CMV}, 0)     AS costo
+              FROM venta_detalle d
+              JOIN venta v ON v.id = d.venta_id
+             WHERE v.estado <> ? {_RANGO}""",
+        [ANULADA, *_limites(desde, hasta)],
+    ).fetchone()
+    return (
+        desde_entero(fila["ingreso"], ESCALA_TOTAL),
+        desde_entero(fila["costo"], ESCALA_TOTAL),
+    )
+
 
 # RF-49 / RN-30 no tiene consulta propia: `repositorios.inventario.existencias`
 # ya devuelve existencia y ultimo costo por producto, y `ExistenciaProducto`
