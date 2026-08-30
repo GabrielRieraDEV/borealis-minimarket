@@ -1,0 +1,27 @@
+[project]
+name = "minimarket"
+version = "0.1.0"
+description = "Sistema de gestión para minimarket — Borealis Software Solutions"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "PySide6>=6.7",
+    "python-escpos>=3.1",
+    "reportlab>=4.1",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["minimarket*"]
+
+[tool.setuptools.package-data]
+minimarket = ["datos/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

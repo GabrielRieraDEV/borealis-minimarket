@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Base de datos y respaldos: nunca al repositorio
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+respaldos/
+
+# Empaquetado (Fase 6)
+build/
+dist/
+*.spec
+
+# Bitácora
+*.log
