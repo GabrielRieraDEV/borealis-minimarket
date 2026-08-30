@@ -1,7 +1,10 @@
 """Ventana principal y arranque de la aplicacion.
 
 Navegacion por teclado (RNF-08): F1 venta, F2 productos, F3 categorias,
-F5 tasa del dia, F8 compras, F10 proveedores, F11 existencias.
+F4 reportes, F5 tasa del dia, F8 compras, F10 proveedores, F11 existencias.
+
+Las pestanas que el perfil no puede usar no se dibujan (RF-58). Eso es
+comodidad, no seguridad: quien corta cada operacion es la capa de servicios.
 """
 
 import os
@@ -13,13 +16,32 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QDialog, QMainWindow, QTabWidget
 
 from minimarket.datos import conexion as datos_conexion
+from minimarket.dominio.usuario import (
+    CONFIGURAR,
+    GESTIONAR_USUARIOS,
+    MODIFICAR_PRECIOS,
+    NOMBRE_ROL,
+    REGISTRAR_COMPRAS,
+    REPORTE_CIERRE,
+    VENDER,
+    VER_EXISTENCIAS,
+    Usuario,
+)
+from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.categorias import PantallaCategorias
-from minimarket.ui.comunes import formato
+from minimarket.ui.comunes import avisar, formato
 from minimarket.ui.compras import PantallaCompras, PantallaProveedores
+from minimarket.ui.configuracion import DialogoConfiguracion
 from minimarket.ui.inventario import PantallaExistencias
 from minimarket.ui.productos import PantallaProductos
+from minimarket.ui.reportes import PantallaReportes
 from minimarket.ui.tasa import DialogoTasa
+from minimarket.ui.usuarios import (
+    DialogoClaveInicial,
+    DialogoIngreso,
+    PantallaUsuarios,
+)
 from minimarket.ui.venta import PantallaVenta
 
 
@@ -33,33 +55,42 @@ def ruta_base() -> Path:
 
 
 class VentanaPrincipal(QMainWindow):
-    def __init__(self, conexion: sqlite3.Connection) -> None:
+    def __init__(self, conexion: sqlite3.Connection, usuario: Usuario) -> None:
         super().__init__()
         self.conexion = conexion
-        self.setWindowTitle("Minimarket — Venta, catalogo, compras e inventario")
+        self.usuario = usuario
+        rol = NOMBRE_ROL.get(usuario.rol, usuario.rol)
+        self.setWindowTitle(f"Minimarket — {usuario.nombre} ({rol})")
         self.resize(1060, 660)
 
+        # (permiso, titulo, atajo, pantalla). Sin el permiso, la pestana no
+        # existe: al cajero no le aparecen compras, catalogo ni reportes.
+        posibles = [
+            (VENDER, "&Venta", "F1", PantallaVenta),
+            (MODIFICAR_PRECIOS, "&Productos", "F2", PantallaProductos),
+            (MODIFICAR_PRECIOS, "&Categorias", "F3", PantallaCategorias),
+            (REPORTE_CIERRE, "&Reportes", "F4", PantallaReportes),
+            (REGISTRAR_COMPRAS, "Co&mpras", "F8", PantallaCompras),
+            (REGISTRAR_COMPRAS, "Pro&veedores", "F10", PantallaProveedores),
+            (VER_EXISTENCIAS, "&Existencias", "F11", PantallaExistencias),
+            (GESTIONAR_USUARIOS, "&Usuarios", "Ctrl+U", PantallaUsuarios),
+        ]
         self.pestanas = QTabWidget()
-        for titulo, pantalla in (
-            ("&Venta (F1)", PantallaVenta(conexion)),
-            ("&Productos (F2)", PantallaProductos(conexion)),
-            ("&Categorias (F3)", PantallaCategorias(conexion)),
-            ("Co&mpras (F8)", PantallaCompras(conexion)),
-            ("Pro&veedores (F10)", PantallaProveedores(conexion)),
-            ("&Existencias (F11)", PantallaExistencias(conexion)),
+        menu = self.menuBar().addMenu("&Archivo")
+        for indice, (_, titulo, atajo, clase) in enumerate(
+            [p for p in posibles if usuario.puede(p[0])]
         ):
-            self.pestanas.addTab(pantalla, titulo)
+            self.pestanas.addTab(clase(conexion), f"{titulo} ({atajo})")
+            menu.addAction(self._accion(titulo, atajo, self._ir(indice)))
         self.pestanas.currentChanged.connect(self.refrescar)
         self.setCentralWidget(self.pestanas)
 
-        menu = self.menuBar().addMenu("&Archivo")
-        menu.addAction(self._accion("&Venta", "F1", lambda: self._ir(0)))
-        menu.addAction(self._accion("&Productos", "F2", lambda: self._ir(1)))
-        menu.addAction(self._accion("&Categorias", "F3", lambda: self._ir(2)))
-        menu.addAction(self._accion("Co&mpras", "F8", lambda: self._ir(3)))
-        menu.addAction(self._accion("Pro&veedores", "F10", lambda: self._ir(4)))
-        menu.addAction(self._accion("&Existencias", "F11", lambda: self._ir(5)))
-        menu.addAction(self._accion("&Tasa del dia…", "F5", self.cargar_tasa))
+        if usuario.puede(CONFIGURAR):
+            menu.addSeparator()
+            menu.addAction(self._accion("&Tasa del dia…", "F5", self.cargar_tasa))
+            menu.addAction(
+                self._accion("&Configuracion…", "Ctrl+K", self.configurar)
+            )
         menu.addSeparator()
         menu.addAction(self._accion("&Salir", "Ctrl+Q", self.close))
 
@@ -71,29 +102,62 @@ class VentanaPrincipal(QMainWindow):
         accion.triggered.connect(destino)
         return accion
 
-    def _ir(self, indice: int) -> None:
-        self.pestanas.setCurrentIndex(indice)
+    def _ir(self, indice: int):
+        return lambda: self.pestanas.setCurrentIndex(indice)
 
     def cargar_tasa(self) -> None:
         """RF-11. La tasa manda sobre toda la conversion a bolivares."""
         if DialogoTasa(self.conexion, self).exec() == QDialog.Accepted:
             self.refrescar()
 
+    def configurar(self) -> None:
+        """RF-64, RF-61 a RF-63 y la bitacora de RF-59."""
+        DialogoConfiguracion(self.conexion, self).exec()
+        self.refrescar()
+
     def refrescar(self) -> None:
-        self.pestanas.currentWidget().refrescar()
+        pantalla = self.pestanas.currentWidget()
+        if pantalla is not None:
+            pantalla.refrescar()
         vigente = servicio_tasa.tasa_del_dia(self.conexion)
         self.statusBar().showMessage(
-            f"Tasa de hoy: {formato(vigente, 6)} Bs/USD"
+            f"{self.usuario.nombre} · Tasa de hoy: {formato(vigente, 6)} Bs/USD"
             if vigente is not None
-            else "Sin tasa del dia. Cargala con F5 antes de abrir la caja."
+            else f"{self.usuario.nombre} · Sin tasa del dia. Cargala antes de "
+            "abrir la caja."
         )
+
+
+def ingresar(conexion: sqlite3.Connection, padre=None) -> Usuario | None:
+    """RF-56. Pide la clave inicial si el administrador todavia no tiene."""
+    from minimarket.servicios import usuarios as servicio_usuarios
+
+    semilla = servicio_usuarios.necesita_clave_inicial(conexion)
+    if semilla is not None:
+        if DialogoClaveInicial(conexion, semilla, padre).exec() != QDialog.Accepted:
+            return None
+    dialogo = DialogoIngreso(conexion, padre)
+    return dialogo.usuario if dialogo.exec() == QDialog.Accepted else None
 
 
 def main() -> int:
     aplicacion = QApplication(sys.argv)
     conexion = datos_conexion.abrir(ruta_base())
-    ventana = VentanaPrincipal(conexion)
+    usuario = ingresar(conexion)
+    if usuario is None:
+        return 0
+    ventana = VentanaPrincipal(conexion, usuario)
     ventana.show()
+    # RF-61 / RF-62. Se dispara despues de mostrar la ventana para que el aviso
+    # tenga donde aparecer si la unidad externa no esta.
+    registro = servicio_configuracion.respaldo_automatico(conexion)
+    if registro is not None and not registro.ok and usuario.puede(CONFIGURAR):
+        avisar(
+            ventana,
+            f"{registro.mensaje}\n\nRevisa la unidad de respaldo en "
+            "Archivo → Configuracion.",
+            "El respaldo diario fallo",
+        )
     return aplicacion.exec()
 
 

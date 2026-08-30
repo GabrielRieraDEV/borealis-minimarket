@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from minimarket.servicios import ErrorServicio
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, formato
 
@@ -101,7 +102,7 @@ class DialogoTasa(QDialog):
         try:
             valor = a_decimal(self.valor.text(), "la tasa de cambio")
             servicio_tasa.registrar_manual(self.conexion, valor)
-        except (ErrorDeCampo, servicio_tasa.ErrorTasa) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         self.accept()

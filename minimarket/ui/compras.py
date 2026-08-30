@@ -28,7 +28,8 @@ from minimarket.datos.repositorios import compra as repo_compra
 from minimarket.datos.repositorios import producto as repo_producto
 from minimarket.datos.repositorios import proveedor as repo_proveedor
 from minimarket.dominio.compra import ANULADA, Compra, LineaCompra, Proveedor
-from minimarket.servicios import USUARIO_ACTUAL, compras
+from minimarket.servicios import ErrorServicio
+from minimarket.servicios import compras, usuario_actual
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
 
@@ -184,7 +185,7 @@ class PantallaCompras(QWidget):
             return
         try:
             compras.anular_compra(self.conexion, compra.id, "Anulada desde pantalla")
-        except compras.ErrorCompra as error:
+        except ErrorServicio as error:
             avisar(self, str(error))
             return
         self.refrescar()
@@ -363,14 +364,14 @@ class DialogoCompra(QDialog):
         compra = Compra(
             proveedor_id=self.proveedor.currentData(),
             fecha=self.fecha.text().strip(),
-            usuario_id=USUARIO_ACTUAL,
+            usuario_id=usuario_actual(),
             numero_documento=self.documento.text().strip() or None,
             observacion=self.observacion.text().strip() or None,
             lineas=self.lineas,
         )
         try:
             resultado = compras.registrar_compra(self.conexion, compra)
-        except compras.ErrorCompra as error:
+        except ErrorServicio as error:
             avisar(self, str(error))
             return
         if resultado.avisos:
@@ -447,7 +448,7 @@ class DialogoPago(QDialog):
                 fecha=self.fecha.text().strip(),
                 referencia=self.referencia.text().strip() or None,
             )
-        except (ErrorDeCampo, compras.ErrorCompra) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         self.accept()
@@ -596,7 +597,7 @@ class DialogoProveedor(QDialog):
                     activo=True if self.proveedor is None else self.proveedor.activo,
                 ),
             )
-        except compras.ErrorCompra as error:
+        except ErrorServicio as error:
             avisar(self, str(error))
             return
         self.accept()

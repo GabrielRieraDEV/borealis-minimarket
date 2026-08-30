@@ -27,6 +27,7 @@ from minimarket.datos.repositorios import alicuota as repo_alicuota
 from minimarket.datos.repositorios import categoria as repo_categoria
 from minimarket.datos.repositorios import producto as repo_producto
 from minimarket.dominio.producto import Producto, precio_publico_bs
+from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo, tasa as servicio_tasa
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
 
@@ -313,7 +314,7 @@ class DialogoProducto(QDialog):
                 catalogo.crear_producto(self.conexion, producto)
             else:
                 catalogo.modificar_producto(self.conexion, producto)
-        except (ErrorDeCampo, catalogo.ErrorCatalogo) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         self.accept()

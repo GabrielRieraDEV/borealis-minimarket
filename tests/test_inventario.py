@@ -19,6 +19,7 @@ from minimarket.dominio.inventario import (
     valorizar,
 )
 from minimarket.servicios import compras, inventario
+from minimarket.servicios import usuarios as servicio_usuarios
 from tests.conftest import USUARIO_SEMILLA, alta, registrar_compra
 
 
@@ -226,7 +227,8 @@ def test_rf26_el_ajuste_es_solo_del_administrador(conexion, categoria, exento):
            VALUES ('cajera', 'Cajera', '', 'CAJERO')"""
     ).lastrowid
 
-    with pytest.raises(inventario.ErrorInventario, match="administrador"):
+    # RF-58: desde la Fase 4 lo corta el control de permisos, no el servicio.
+    with pytest.raises(servicio_usuarios.ErrorPermiso, match="ajustar el inventario"):
         inventario.ajustar_por_conteo(
             conexion, producto.id, Decimal(18), "Faltante", usuario_id=cajero
         )

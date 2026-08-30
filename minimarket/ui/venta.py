@@ -32,13 +32,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from minimarket.dominio.usuario import ANULAR_VENTAS
 from minimarket.dominio.venta import BS, MEDIOS, MONEDAS, Cliente, LineaVenta, Venta
-from minimarket.servicios import USUARIO_ACTUAL
+from minimarket.servicios import ErrorServicio, usuario_actual
 from minimarket.servicios import caja as servicio_caja
 from minimarket.servicios import catalogo
 from minimarket.servicios import tasa as servicio_tasa
+from minimarket.servicios import usuarios as servicio_usuarios
 from minimarket.servicios import venta as servicio_venta
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
+from minimarket.ui.usuarios import pedir_autorizacion
 
 COLUMNAS = ["Producto", "Cantidad", "Precio USD", "IVA %", "Total USD"]
 COLUMNAS_PAGO = ["Medio", "Moneda", "Monto", "Equivale USD", "Referencia"]
@@ -178,7 +181,7 @@ class PantallaVenta(QWidget):
     def _venta_en_curso(self) -> Venta:
         """Solo para calcular y mostrar; la venta real la arma `cobrar`."""
         return Venta(
-            usuario_id=USUARIO_ACTUAL,
+            usuario_id=usuario_actual(),
             tasa=self.tasa or Decimal(1),
             cliente_id=self.cliente.id if self.cliente else None,
             lineas=self.lineas,
@@ -205,7 +208,7 @@ class PantallaVenta(QWidget):
             return
         try:
             linea = servicio_venta.nueva_linea(self.conexion, producto.id, cantidad)
-        except servicio_venta.ErrorVenta as error:
+        except ErrorServicio as error:
             return self._error(str(error))
 
         # Escanear dos veces el mismo producto suma cantidad, no repite renglon.
@@ -285,7 +288,7 @@ class PantallaVenta(QWidget):
         venta.pagos = dialogo.pagos
         try:
             registrada = servicio_venta.registrar_venta(self.conexion, venta)
-        except (servicio_venta.ErrorVenta, servicio_caja.ErrorCaja) as error:
+        except ErrorServicio as error:
             return self._error(str(error))
 
         self.ultima_venta_id = registrada.id
@@ -324,7 +327,12 @@ class PantallaVenta(QWidget):
     # --- Anulacion (RF-41) --------------------------------------------------
 
     def anular(self) -> None:
-        """RN-25. Motivo obligatorio; el servicio exige rol de administrador."""
+        """RN-25. Motivo obligatorio y autorizacion de administrador.
+
+        Si quien opera ya es administrador, anula directo; si es cajero, se le
+        pide la clave a un administrador y se pasa como `autorizado_por`. Quien
+        valida que eso alcance es el servicio.
+        """
         numero, acepto = QInputDialog.getInt(
             self, "Anular venta", "Numero de venta a anular:", 1, 1
         )
@@ -340,9 +348,18 @@ class PantallaVenta(QWidget):
         )
         if not acepto:
             return
+        autorizado_por = None
+        if not servicio_usuarios.tiene_permiso(self.conexion, ANULAR_VENTAS):
+            autorizado_por = pedir_autorizacion(
+                self.conexion, f"Anulacion de la venta {numero}.", self
+            )
+            if autorizado_por is None:
+                return
         try:
-            servicio_venta.anular_venta(self.conexion, venta.id, motivo)
-        except servicio_venta.ErrorVenta as error:
+            servicio_venta.anular_venta(
+                self.conexion, venta.id, motivo, autorizado_por=autorizado_por
+            )
+        except ErrorServicio as error:
             return self._error(str(error))
         avisar(self, f"La venta {numero} quedo anulada.", "Anulacion registrada")
         self.refrescar()
@@ -458,7 +475,7 @@ class DialogoCobro(QDialog):
                 self.venta.tasa,
                 self.referencia.text().strip() or None,
             )
-        except (ErrorDeCampo, servicio_venta.ErrorVenta) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         self.pagos.append(cobro)
@@ -571,7 +588,7 @@ class DialogoCliente(QDialog):
                     tipo="EMPRESA",
                 ),
             )
-        except servicio_venta.ErrorVenta as error:
+        except ErrorServicio as error:
             avisar(self, str(error))
             return
         self.accept()
@@ -611,7 +628,7 @@ class DialogoApertura(QDialog):
                 a_decimal(self.inicial_bs.text(), "el efectivo inicial en Bs"),
                 a_decimal(self.inicial_usd.text(), "el efectivo inicial en USD"),
             )
-        except (ErrorDeCampo, servicio_caja.ErrorCaja, servicio_tasa.ErrorTasa) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         self.accept()
@@ -696,7 +713,7 @@ class DialogoCierre(QDialog):
         try:
             conteo_bs, conteo_usd = self._conteos()
             cierre = servicio_caja.cerrar(self.conexion, conteo_bs, conteo_usd)
-        except (ErrorDeCampo, servicio_caja.ErrorCaja) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         # RN-26: la diferencia no impide cerrar, pero se informa.

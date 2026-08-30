@@ -12,6 +12,7 @@ from decimal import Decimal
 from minimarket.datos.conexion import transaccion
 from minimarket.datos.repositorios import caja as repo_caja
 from minimarket.dominio.dinero import convertir_a_bs, redondear_comercial
+from minimarket.dominio.usuario import OPERAR_CAJA
 from minimarket.dominio.venta import (
     BS,
     EFECTIVO,
@@ -20,11 +21,12 @@ from minimarket.dominio.venta import (
     LineaCierre,
     ResumenCierre,
 )
-from minimarket.servicios import USUARIO_ACTUAL
+from minimarket.servicios import ErrorServicio, usuario_actual
 from minimarket.servicios import tasa as servicio_tasa
+from minimarket.servicios import usuarios as servicio_usuarios
 
 
-class ErrorCaja(Exception):
+class ErrorCaja(ErrorServicio):
     """Falla previsible, con mensaje listo para mostrar en pantalla."""
 
 
@@ -47,13 +49,15 @@ def abrir(
     conexion: sqlite3.Connection,
     inicial_bs: Decimal = Decimal(0),
     inicial_usd: Decimal = Decimal(0),
-    usuario_id: int = USUARIO_ACTUAL,
+    usuario_id: int | None = None,
 ) -> CajaSesion:
     """RF-42. Monto inicial en cada moneda.
 
     Se exige la tasa del dia aca y no al vender: si falta, el cajero se entera
     al abrir y no con el cliente enfrente (RN-04).
     """
+    usuario_id = usuario_id if usuario_id is not None else usuario_actual()
+    servicio_usuarios.exigir(conexion, OPERAR_CAJA, usuario_id)
     if inicial_bs < 0 or inicial_usd < 0:
         raise ErrorCaja("Los montos iniciales no pueden ser negativos.")
     if repo_caja.sesion_abierta(conexion) is not None:
@@ -128,9 +132,11 @@ def cerrar(
     conexion: sqlite3.Connection,
     conteo_bs: Decimal,
     conteo_usd: Decimal,
-    usuario_id: int = USUARIO_ACTUAL,
+    usuario_id: int | None = None,
 ) -> ResumenCierre:
     """RF-43 / RN-26. Cierra la sesion abierta y registra las diferencias."""
+    usuario_id = usuario_id if usuario_id is not None else usuario_actual()
+    servicio_usuarios.exigir(conexion, OPERAR_CAJA, usuario_id)
     if conteo_bs < 0 or conteo_usd < 0:
         raise ErrorCaja("Los montos contados no pueden ser negativos.")
     sesion = exigir_sesion(conexion)

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from minimarket.datos.repositorios import categoria as repo_categoria
 from minimarket.dominio.producto import Categoria
+from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
 
@@ -164,7 +165,7 @@ class DialogoCategoria(QDialog):
                     activo=True if self.categoria is None else self.categoria.activo,
                 ),
             )
-        except (ErrorDeCampo, catalogo.ErrorCatalogo) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         self.accept()

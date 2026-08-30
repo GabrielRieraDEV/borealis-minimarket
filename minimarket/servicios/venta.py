@@ -23,6 +23,7 @@ from minimarket.dominio.inventario import (
     VENTA,
     Movimiento,
 )
+from minimarket.dominio.usuario import ANULAR_VENTAS, VENDER
 from minimarket.dominio.venta import (
     COMPLETADA,
     MEDIOS,
@@ -33,12 +34,14 @@ from minimarket.dominio.venta import (
     Venta,
     equivalente_usd,
 )
-from minimarket.servicios import USUARIO_ACTUAL, caja
+from minimarket.infra import auditoria
+from minimarket.servicios import ErrorServicio, caja, usuario_actual
 from minimarket.servicios import inventario as servicio_inventario
 from minimarket.servicios import tasa as servicio_tasa
+from minimarket.servicios import usuarios as servicio_usuarios
 
 
-class ErrorVenta(Exception):
+class ErrorVenta(ErrorServicio):
     """Falla previsible, con mensaje listo para mostrar en pantalla."""
 
 
@@ -124,6 +127,7 @@ def registrar_venta(
     `autorizado_por` es el administrador que habilita vender por encima de la
     existencia registrada (RF-27); sin el, la venta se rechaza.
     """
+    servicio_usuarios.exigir(conexion, VENDER)
     sesion = caja.exigir_sesion(conexion)  # RF-44
     venta.caja_sesion_id = sesion.id  # RF-45
     _fijar_tasa(conexion, venta)
@@ -147,16 +151,28 @@ def anular_venta(
     conexion: sqlite3.Connection,
     venta_id: int,
     motivo: str,
-    usuario_id: int = USUARIO_ACTUAL,
+    usuario_id: int | None = None,
+    autorizado_por: int | None = None,
 ) -> None:
-    """RF-41 / RN-25. Clave de administrador y motivo obligatorio.
+    """RF-41 / RN-25. Autorizacion de administrador y motivo obligatorio.
+
+    El cajero puede anular con la autorizacion de un administrador, que es
+    lo que dice la seccion 6 de las reglas: `autorizado_por` es el id que
+    devolvio `usuarios.verificar` al validar su clave. El asiento de la
+    bitacora guarda a los dos.
 
     Devuelve la mercancia al inventario con el costo congelado en la venta
     original. El documento no se borra: conserva su numero (RN-24) y sigue en
     el libro de ventas identificado como anulado.
     """
-    if not repo_usuario.es_administrador(conexion, usuario_id):
-        raise ErrorVenta("La anulacion de ventas esta reservada al administrador.")
+    usuario_id = usuario_id if usuario_id is not None else usuario_actual()
+    if not servicio_usuarios.tiene_permiso(conexion, ANULAR_VENTAS, usuario_id):
+        if autorizado_por is None or not repo_usuario.es_administrador(
+            conexion, autorizado_por
+        ):
+            raise ErrorVenta(
+                "La anulacion necesita la autorizacion de un administrador."
+            )
     if not motivo.strip():
         raise ErrorVenta("Indica el motivo de la anulacion.")
     venta = repo_venta.obtener(conexion, venta_id)
@@ -189,6 +205,18 @@ def anular_venta(
                 ),
             )
         repo_venta.anular(conexion, venta_id, usuario_id, motivo.strip())
+        auditoria.registrar(  # RF-59
+            conexion,
+            usuario_id,
+            auditoria.ANULACION_VENTA,
+            "venta",
+            venta_id,
+            antes={"numero": venta.numero, "total_usd": venta.total_usd},
+            despues={
+                "motivo": motivo.strip(),
+                "autorizado_por": autorizado_por,
+            },
+        )
 
 
 # --- Consultas --------------------------------------------------------------

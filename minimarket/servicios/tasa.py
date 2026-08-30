@@ -13,11 +13,14 @@ from minimarket.datos.conexion import transaccion
 from minimarket.datos.repositorios import configuracion as repo_configuracion
 from minimarket.datos.repositorios import tasa as repo_tasa
 from minimarket.dominio.tasa import BCV_AUTO, MANUAL, TasaCambio
+from minimarket.dominio.usuario import CARGAR_TASA
+from minimarket.servicios import ErrorServicio, usuario_actual
+from minimarket.servicios import usuarios as servicio_usuarios
 
 _bitacora = logging.getLogger(__name__)
 
 
-class ErrorTasa(Exception):
+class ErrorTasa(ErrorServicio):
     """Falla previsible, con mensaje listo para mostrar en pantalla."""
 
 
@@ -52,11 +55,13 @@ def registrar_manual(
     usuario_id: int | None = None,
 ) -> None:
     """RF-11 / RN-02. Reemplaza la tasa de esa fecha si ya habia una."""
+    servicio_usuarios.exigir(conexion, CARGAR_TASA)  # RF-58
     if valor <= 0:
         raise ErrorTasa("La tasa de cambio debe ser mayor que cero.")
     with transaccion(conexion):
         repo_tasa.registrar(
-            conexion, TasaCambio(fecha or hoy(), valor, MANUAL, usuario_id)
+            conexion,
+            TasaCambio(fecha or hoy(), valor, MANUAL, _autor(usuario_id)),
         )
 
 
@@ -72,13 +77,15 @@ def actualizar_desde_bcv(
     """
     from minimarket.infra import bcv  # import diferido: `datos/` no depende de red
 
+    servicio_usuarios.exigir(conexion, CARGAR_TASA)  # RF-58
     valor = bcv.consultar(repo_configuracion.leer(conexion, "bcv.url"))
     if valor is None:
         _bitacora.info("Consulta al BCV sin resultado; queda la carga manual.")
         return None
     with transaccion(conexion):
         repo_tasa.registrar(
-            conexion, TasaCambio(fecha or hoy(), valor, BCV_AUTO, usuario_id)
+            conexion,
+            TasaCambio(fecha or hoy(), valor, BCV_AUTO, _autor(usuario_id)),
         )
     return valor
 
@@ -88,6 +95,11 @@ def historico(
 ) -> list[TasaCambio]:
     """RF-13. Las operaciones pasadas conservan su tasa; aca se consulta."""
     return repo_tasa.historico(conexion, desde, hasta)
+
+
+def _autor(usuario_id: int | None) -> int:
+    """Quien cargo la tasa: el que se indique, o el de la sesion."""
+    return usuario_id if usuario_id is not None else usuario_actual()
 
 
 def multiplo_redondeo(conexion: sqlite3.Connection) -> Decimal:

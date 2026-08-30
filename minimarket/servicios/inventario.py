@@ -6,12 +6,12 @@ fisico, y solo lo puede hacer un administrador (RF-26).
 """
 
 import sqlite3
+from dataclasses import replace
 from decimal import Decimal
 
 from minimarket.datos.conexion import transaccion
 from minimarket.datos.repositorios import inventario as repo_inventario
 from minimarket.datos.repositorios import producto as repo_producto
-from minimarket.datos.repositorios import usuario as repo_usuario
 from minimarket.dominio.inventario import (
     AJUSTE,
     REF_AJUSTE,
@@ -20,10 +20,13 @@ from minimarket.dominio.inventario import (
     SaldoLote,
     repartir_por_lote,
 )
-from minimarket.servicios import USUARIO_ACTUAL
+from minimarket.dominio.usuario import AJUSTAR_INVENTARIO, VER_COSTOS
+from minimarket.infra import auditoria
+from minimarket.servicios import ErrorServicio, usuario_actual
+from minimarket.servicios import usuarios as servicio_usuarios
 
 
-class ErrorInventario(Exception):
+class ErrorInventario(ErrorServicio):
     """Falla previsible, con mensaje listo para mostrar en pantalla."""
 
 
@@ -38,13 +41,22 @@ def consultar(
     solo_alerta: bool = False,
     solo_activos: bool = True,
 ) -> list[ExistenciaProducto]:
-    """RF-22 y RF-24. `solo_alerta` deja los que estan en o bajo el minimo."""
-    return repo_inventario.existencias(
+    """RF-22 y RF-24. `solo_alerta` deja los que estan en o bajo el minimo.
+
+    RF-58: la consulta esta habilitada para los dos perfiles, pero trae el
+    ultimo costo. A quien no puede ver costos le llega en None, y la pantalla
+    lo muestra como no disponible. Esconder la columna no alcanzaria: el dato
+    igual habria viajado.
+    """
+    filas = repo_inventario.existencias(
         conexion,
         texto=texto.strip() or None,
         solo_alerta=solo_alerta,
         solo_activos=solo_activos,
     )
+    if servicio_usuarios.tiene_permiso(conexion, VER_COSTOS):
+        return filas
+    return [replace(fila, ultimo_costo=None) for fila in filas]
 
 
 def bajo_minimo(conexion: sqlite3.Connection) -> list[ExistenciaProducto]:
@@ -81,7 +93,7 @@ def ajustar_por_conteo(
     producto_id: int,
     cantidad_fisica: Decimal,
     motivo: str,
-    usuario_id: int = USUARIO_ACTUAL,
+    usuario_id: int | None = None,
 ) -> Decimal:
     """RF-25 / RF-26. Conteo fisico; devuelve la diferencia aplicada.
 
@@ -89,10 +101,8 @@ def ajustar_por_conteo(
     signo (RN-12); un conteo que coincide queda registrado sin movimiento,
     porque `movimiento_inventario` no admite cantidad cero.
     """
-    if not repo_usuario.es_administrador(conexion, usuario_id):
-        raise ErrorInventario(
-            "El ajuste de inventario esta reservado al administrador."
-        )
+    usuario_id = usuario_id if usuario_id is not None else usuario_actual()
+    servicio_usuarios.exigir(conexion, AJUSTAR_INVENTARIO, usuario_id)
     if cantidad_fisica < 0:
         raise ErrorInventario("La cantidad contada no puede ser negativa.")
     if not motivo.strip():
@@ -128,4 +138,13 @@ def ajustar_por_conteo(
                     observacion=motivo.strip(),
                 ),
             )
+        auditoria.registrar(  # RF-59
+            conexion,
+            usuario_id,
+            auditoria.AJUSTE_INVENTARIO,
+            "producto",
+            producto_id,
+            antes={"existencia": cantidad_sistema},
+            despues={"existencia": cantidad_fisica, "motivo": motivo.strip()},
+        )
     return diferencia

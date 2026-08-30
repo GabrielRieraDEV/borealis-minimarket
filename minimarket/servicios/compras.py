@@ -37,12 +37,16 @@ from minimarket.dominio.producto import (
     margen_resultante,
     precio_sugerido,
 )
-from minimarket.servicios import USUARIO_ACTUAL, tasa as servicio_tasa
+from minimarket.dominio.usuario import REGISTRAR_COMPRAS
+from minimarket.infra import auditoria
+from minimarket.servicios import ErrorServicio, tasa as servicio_tasa
+from minimarket.servicios import usuario_actual
+from minimarket.servicios import usuarios as servicio_usuarios
 
 MEDIOS_PAGO = ["EFECTIVO", "TRANSFERENCIA", "PAGO_MOVIL", "PUNTO", "CREDITO"]
 
 
-class ErrorCompra(Exception):
+class ErrorCompra(ErrorServicio):
     """Falla previsible, con mensaje listo para mostrar en pantalla."""
 
 
@@ -72,6 +76,7 @@ class ResultadoCompra:
 
 def guardar_proveedor(conexion: sqlite3.Connection, proveedor: Proveedor) -> int:
     """RF-14. Alta si no tiene id, modificacion si lo tiene."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
     if not proveedor.nombre.strip():
         raise ErrorCompra("El proveedor necesita un nombre.")
     with transaccion(conexion):
@@ -85,6 +90,7 @@ def cambiar_estado_proveedor(
     conexion: sqlite3.Connection, proveedor_id: int, activo: bool
 ) -> None:
     """Baja logica: las compras historicas siguen apuntando al proveedor."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
     proveedor = repo_proveedor.obtener(conexion, proveedor_id)
     if proveedor is None:
         raise ErrorCompra("El proveedor ya no existe.")
@@ -102,6 +108,7 @@ def registrar_compra(conexion: sqlite3.Connection, compra: Compra) -> ResultadoC
     Devuelve los productos que, con el costo recien cargado, quedaron por
     debajo de su margen objetivo, para que la pantalla los ofrezca a revision.
     """
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)  # RF-58
     productos = _validar(conexion, compra)
     compra.tasa_id = _tasa_id(conexion, compra.fecha)
     compra.total_usd = compra.total_calculado
@@ -171,9 +178,11 @@ def anular_compra(
     conexion: sqlite3.Connection,
     compra_id: int,
     motivo: str,
-    usuario_id: int = USUARIO_ACTUAL,
+    usuario_id: int | None = None,
 ) -> None:
     """RF-20 / RN-13. Movimientos inversos; el registro original se conserva."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
+    usuario_id = usuario_id if usuario_id is not None else usuario_actual()
     compra = repo_compra.obtener(conexion, compra_id)
     if compra is None:
         raise ErrorCompra("La compra ya no existe.")
@@ -219,6 +228,15 @@ def anular_compra(
                 ),
             )
         repo_compra.anular(conexion, compra_id, motivo)
+        auditoria.registrar(  # RF-59
+            conexion,
+            usuario_id,
+            auditoria.ANULACION_COMPRA,
+            "compra",
+            compra_id,
+            antes={"estado": CONFIRMADA, "total_usd": compra.total_usd},
+            despues={"motivo": motivo},
+        )
 
 
 # --- Pagos a proveedores (RF-19) --------------------------------------------
@@ -233,6 +251,7 @@ def registrar_pago(
     referencia: str | None = None,
 ) -> None:
     """RF-19. Imputa el pago y baja el saldo pendiente de la compra."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
     compra = repo_compra.obtener(conexion, compra_id)
     if compra is None:
         raise ErrorCompra("La compra ya no existe.")

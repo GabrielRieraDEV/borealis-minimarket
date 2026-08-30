@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from minimarket.dominio.inventario import ExistenciaProducto
+from minimarket.servicios import ErrorServicio
 from minimarket.servicios import inventario
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, formato
 
@@ -92,7 +93,8 @@ class PantallaExistencias(QWidget):
                 formato(fila.existencia, 3),
                 formato(fila.existencia_minima, 3),
                 formato(fila.ultimo_costo, 4),
-                formato(fila.valorizacion),
+                # RF-58: sin costo visible tampoco hay valorizacion que mostrar.
+                formato(fila.valorizacion) if fila.ultimo_costo is not None else "—",
                 "Reponer" if fila.en_alerta else "",
             ]
             for columna, texto in enumerate(celdas):
@@ -101,11 +103,11 @@ class PantallaExistencias(QWidget):
                     celda.setBackground(QBrush(ROJO_SUAVE))
                 self.tabla.setItem(numero, columna, celda)
         en_alerta = sum(1 for f in self.filas if f.en_alerta)
-        valorizado = sum(f.valorizacion for f in self.filas)
-        self.resumen.setText(
-            f"{len(self.filas)} productos · {en_alerta} por reponer · "
-            f"inventario valorizado en {formato(valorizado)} USD"
-        )
+        resumen = f"{len(self.filas)} productos · {en_alerta} por reponer"
+        if any(f.ultimo_costo is not None for f in self.filas):
+            valorizado = sum(f.valorizacion for f in self.filas)
+            resumen += f" · inventario valorizado en {formato(valorizado)} USD"
+        self.resumen.setText(resumen)
 
     def ajustar(self) -> None:
         """RF-25 / RF-26. Solo administrador; lo hace cumplir el servicio."""
@@ -183,7 +185,7 @@ class DialogoAjuste(QDialog):
                 a_decimal(self.contada.text(), "la cantidad contada"),
                 self.motivo.text(),
             )
-        except (ErrorDeCampo, inventario.ErrorInventario) as error:
+        except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
         if diferencia == 0:

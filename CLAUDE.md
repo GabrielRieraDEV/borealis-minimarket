@@ -74,7 +74,7 @@ tests/
 
 ## Estado del proyecto
 
-Fase actual: **Fase 4 — Usuarios, reportes y respaldo** (sin empezar).
+Fase actual: **Fase 5 — Pérdidas, vencimientos y resultados** (sin empezar).
 
 Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
 `datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
@@ -96,6 +96,14 @@ Fase 3 terminada: `dominio/venta.py` (RN-19 a RN-26, tambien `CajaSesion`),
 `servicios/venta.py`, `servicios/caja.py`, `infra/impresora.py` y la interfaz
 (`ui/venta.py`, con el punto de venta, el cobro, el cliente fiscal y la caja).
 193 pruebas.
+
+Fase 4 terminada: `dominio/usuario.py` (roles, tabla de permisos y hash scrypt),
+`dominio/reportes.py` (RN-27, RN-28, RN-31), `datos/repositorios/` (usuario
+completo y reportes), `servicios/usuarios.py`, `servicios/reportes.py`,
+`servicios/configuracion.py`, `infra/auditoria.py`, `infra/respaldo.py`,
+`infra/pdf.py` y la interfaz (`ui/usuarios.py`, `ui/reportes.py`,
+`ui/configuracion.py`, y `ui/principal.py` con el ingreso y las pestañas por
+perfil). 240 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -213,10 +221,60 @@ Resueltas en la Fase 3:
   que haya que saltar, y escanear dos veces el mismo producto acumula en el
   renglon que ya existe.
 
+Resueltas en la Fase 4:
+
+- **Sesión del usuario**: `servicios.USUARIO_ACTUAL` desapareció. En su lugar,
+  `servicios/__init__.py` guarda la sesión (`iniciar_sesion`, `sesion`,
+  `usuario_actual`) y `USUARIO_SEMILLA = 1` es el autor por defecto cuando no
+  hay sesión, que es el caso de las pruebas y de `tests/datos_prueba.py`.
+- **`ErrorServicio`** es la base de todas las excepciones de la capa. Existe
+  porque `ErrorPermiso` puede salir de cualquier servicio y las pantallas
+  atrapaban solo la excepción de su módulo. Toda pantalla nueva atrapa
+  `ErrorServicio`, no la concreta.
+- **Permisos (RF-58)**: la tabla de la sección 6 vive en `dominio/usuario.py`
+  como `PERMISOS`, y `servicios/usuarios.exigir` es el único control de acceso.
+  La interfaz esconde pestañas y reportes, pero eso es comodidad. Se agregó
+  `VER_REPORTES` (solo ADMIN), que la sección 6 no nombra: cubre el reporte de
+  ventas, el inventario valorizado y el libro de ventas. El cierre de la propia
+  sesión sigue abierto al cajero.
+- **Costos ocultos al cajero**: `servicios/inventario.consultar` devuelve
+  `ultimo_costo=None` cuando el perfil no tiene `VER_COSTOS`, en vez de que la
+  pantalla esconda la columna. El dato no viaja.
+- **Anulación de ventas (RN-25)**: `anular_venta` acepta `autorizado_por`, el id
+  que devuelve `usuarios.verificar` al validar la clave de un administrador sin
+  desplazar la sesión del cajero. La bitácora guarda a los dos.
+- **Bitácora (RF-59)**: `infra/auditoria.registrar` se llama DENTRO de la
+  transacción de la operación registrada; si la operación se revierte, el
+  asiento tampoco queda.
+- **CMV en SQL (RN-27)**: `datos/repositorios/reportes.py` suma
+  `(cantidad * costo + 50000) / 100000` con enteros, que es ROUND_HALF_UP y da
+  lo mismo que `redondear(cantidad × costo, 2)` por línea. Es la única
+  aritmética de escala fuera de `dominio/dinero.py`, y vive en `datos/`, que es
+  la capa que conoce las escalas.
+- **Respaldo diario (RF-61)**: sin hilo ni programador de tareas. Al arrancar,
+  `configuracion.respaldo_automatico` mira si ya hubo uno hoy y si pasó la hora
+  configurada. El equipo se apaga todas las noches; si algún día queda abierto,
+  entra un `QTimer` en la ventana principal y el servicio no cambia.
+- **Restauración (RF-63)**: se abre el respaldo en modo lectura y se hace
+  `origen.backup(conexion_viva)`. Reemplaza el contenido de la base abierta sin
+  tocar archivos, que es lo que WAL exige. Antes se verifica que el `.db` tenga
+  las tablas del sistema.
+- **Formato del libro de ventas**: `dominio/reportes.COLUMNAS_LIBRO` es la lista
+  de columnas; la pantalla y el PDF la recorren. Cuando el contador del cliente
+  confirme el formato (cláusula 6.7), se toca ahí y en ningún otro lado.
+
 Pendientes para fases posteriores:
 
 - **RN-17** (alerta de vencimiento) esta en `dominio/inventario.py` como
   `en_alerta_vencimiento`, sin consulta ni pantalla: RF-31 y RF-32 son Fase 5.
+- **RF-53 a RF-55** (pérdidas, vencimientos y ganancia real) son Fase 5. Van a
+  entrar en `servicios/reportes.py` con el mismo patrón: consulta agregada en
+  `datos/repositorios/reportes.py`, fila en `dominio/reportes.py`, permiso
+  `REPORTES_GANANCIA` y un generador más en `ui/reportes.py`.
+- **Clave del administrador en el primer arranque**: hoy la pide
+  `ui/principal.ingresar` con `DialogoClaveInicial`, porque sin eso no se puede
+  entrar. La Fase 6 lo mueve al asistente de instalación; el servicio
+  (`usuarios.establecer_clave_inicial`) no cambia.
 - **Existencia en caché**: el modelo de datos la sugiere por volumen. Hoy es la
   vista `v_existencia`. No materializarla hasta que una medición sobre los 3.000
   productos de prueba lo justifique; RN-11 solo la permite si se recalcula desde
