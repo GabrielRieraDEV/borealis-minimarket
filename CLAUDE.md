@@ -74,7 +74,7 @@ tests/
 
 ## Estado del proyecto
 
-Fase actual: **Fase 2 — Compras, costos e inventario** (sin empezar).
+Fase actual: **Fase 3 — Ventas y caja** (sin empezar).
 
 Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
 `datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
@@ -85,6 +85,11 @@ configuracion), `dominio/producto.py`, `dominio/tasa.py`, `servicios/catalogo.py
 `servicios/tasa.py`, `infra/bcv.py` y la interfaz (`ui/principal.py`,
 `ui/productos.py`, `ui/categorias.py`, `ui/tasa.py`, `ui/comunes.py`).
 116 pruebas. La app arranca con `python -m minimarket`.
+
+Fase 2 terminada: `dominio/inventario.py` (kardex, RN-06, RN-11 a RN-18),
+`dominio/compra.py`, `datos/repositorios/` (proveedor, compra, inventario,
+usuario), `servicios/compras.py`, `servicios/inventario.py` y la interfaz
+(`ui/compras.py`, `ui/inventario.py`). 160 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -145,10 +150,37 @@ Resueltas en la Fase 1:
 - **Dinero en la interfaz**: nunca `QDoubleSpinBox` (guarda `float`).
   `ui/comunes.a_decimal` lee los campos de texto y acepta coma o punto.
 
+Resueltas en la Fase 2:
+
+- **Usuario de las operaciones**: `servicios.USUARIO_ACTUAL = 1` (el `admin`
+  semilla) mientras no haya autenticacion. La Fase 4 lo reemplaza por la sesion
+  real y esa constante desaparece.
+- **`repartir_por_lote` (RN-15)** devuelve `(None, sobrante)` cuando la salida
+  excede los lotes, en vez de fallar. Quien decide si la venta procede es
+  RF-27, que mira la existencia total y admite autorizacion del administrador.
+- **Anulacion de compra (RF-20)**: se rechaza si la compra tiene pagos
+  registrados o si parte de la mercancia ya salio, porque el inverso dejaria
+  existencia negativa. La correccion en esos casos es un ajuste o una perdida.
+- **`compra_detalle` y `pago_proveedor`** viven en un solo repositorio
+  (`datos/repositorios/compra.py`) porque se escriben y se leen siempre con el
+  encabezado. `lote` y `movimiento_inventario` comparten
+  `datos/repositorios/inventario.py` por el mismo motivo.
+- **`datos/repositorios/usuario.py`** existe adelantado y solo expone el rol,
+  que es lo que RF-26 necesita. La Fase 4 le agrega alta, baja y autenticacion.
+- **Aviso de margen**: `registrar_compra` devuelve los productos que quedaron
+  por debajo del margen objetivo con el costo nuevo, pero NO toca precios.
+  Cambiarlos sigue siendo el recalculo confirmado de RF-08.
+- **Detalle de compra en la interfaz**: se edita agregando y quitando lineas,
+  no celda por celda. La edicion en sitio con selector de producto adentro de
+  la grilla es varias veces mas codigo y peor con teclado.
+
 Pendientes para fases posteriores:
 
 - **RF-27** (bloquear venta sin existencia) figura en el rango de la Fase 2
-  pero se hace cumplir en `servicios/venta.py`, Fase 3.
+  pero se hace cumplir en `servicios/venta.py`, Fase 3. La pieza que le falta
+  ya esta: `servicios.inventario.salida_por_lotes`.
+- **RN-17** (alerta de vencimiento) esta en `dominio/inventario.py` como
+  `en_alerta_vencimiento`, sin consulta ni pantalla: RF-31 y RF-32 son Fase 5.
 - **Existencia en caché**: el modelo de datos la sugiere por volumen. Hoy es la
   vista `v_existencia`. No materializarla hasta que una medición sobre los 3.000
   productos de prueba lo justifique; RN-11 solo la permite si se recalcula desde
