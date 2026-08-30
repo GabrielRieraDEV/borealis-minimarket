@@ -65,16 +65,29 @@ tests/
 - Nombres de tablas, campos y variables de dominio en español.
 - Docstrings citando el requisito o regla que implementan: `# RN-05`, `# RF-34`.
 - Type hints en todas las funciones públicas.
-- Fechas y horas en zona local (RNF-14). Se guardan como texto ISO 8601 sin
-  zona, generado en Python — nunca con `datetime('now')` de SQLite, que da UTC.
+- Fechas y horas en zona local (RNF-14), como texto ISO 8601 sin zona:
+  `AAAA-MM-DD` o `AAAA-MM-DD HH:MM:SS`. El esquema las pone con
+  `DEFAULT (datetime('now','localtime'))`. Nunca `datetime('now')` a secas,
+  que devuelve UTC.
+- Ninguna función fuera de `dominio/dinero.py` llama a `quantize` ni multiplica
+  por una escala a mano. Se usan `redondear`, `a_entero` y `desde_entero`.
 
 ## Estado del proyecto
 
-Fase actual: **Fase 0 — Cimientos** (sin empezar). Solo existe el andamiaje:
-`pyproject.toml`, los paquetes vacíos y esta documentación.
+Fase actual: **Fase 1 — Catálogo y tasa del día** (sin empezar).
+
+Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
+`datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
+que verifican los ejemplos A, B y C.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
+
+### Entorno
+
+`.venv` con pytest instalado. `pytest` se corre sin instalar el paquete:
+`pythonpath = ["."]` está en `pyproject.toml`. `pip install -e ".[dev]"` recién
+hace falta cuando entre PySide6, en la Fase 1.
 
 ## Erratas detectadas en la documentación
 
@@ -91,21 +104,33 @@ código no las reproduzca:
 
 ## Decisiones que atraviesan varias fases
 
+Resueltas en la Fase 0:
+
 - **Usuario semilla**: `movimiento_inventario.usuario_id` y `caja_sesion` son
-  NOT NULL, pero los usuarios son Fase 4. La Fase 0 crea en los datos iniciales
-  un usuario ADMIN de arranque; la Fase 4 le pone autenticación real encima.
+  NOT NULL, pero los usuarios son Fase 4. El esquema crea `admin` / ADMIN con
+  `hash_clave` vacío, que no puede autenticar. La Fase 4 le pone autenticación
+  real encima y la Fase 6 le establece la clave en el primer arranque.
+- **RN-10 (redondeo comercial)** vive en `dominio/dinero.py` como
+  `redondear_comercial`, porque los ejemplos A y B ya lo usan. Solo implementa
+  el sentido «hacia arriba» que define la regla; `precio.modo_redondeo` queda en
+  `configuracion` por si alguna vez hace falta otro.
+- **Traducción a SQLite**: `v_ultimo_costo` usa `ROW_NUMBER` en vez de
+  `DISTINCT ON`. `SERIAL` → `INTEGER PRIMARY KEY AUTOINCREMENT`, `NOW()` →
+  `datetime('now','localtime')`, `BOOLEAN` → `INTEGER` 0/1 con CHECK,
+  `NUMERIC(x,y)` → `INTEGER` escalado.
+
+Pendientes para fases posteriores:
+
 - **RF-27** (bloquear venta sin existencia) figura en el rango de la Fase 2
   pero se hace cumplir en `servicios/venta.py`, Fase 3.
-- **RN-10 (redondeo comercial)** entra en `dominio/dinero.py` desde la Fase 0:
-  los ejemplos A y B ya lo usan. Lee `precio.redondeo_bs` y
-  `precio.modo_redondeo` de `configuracion`.
-- **`v_ultimo_costo`** usa `DISTINCT ON`, que es exclusivo de PostgreSQL.
-  En SQLite se reescribe con función de ventana (`ROW_NUMBER`) o `GROUP BY`.
-  `SERIAL` → `INTEGER PRIMARY KEY AUTOINCREMENT`, `NOW()` → valor desde Python,
-  `NUMERIC(x,y)` → `INTEGER` escalado.
-- **Existencia en caché**: el modelo de datos la sugiere. No implementarla hasta
-  que una medición sobre los datos de prueba demuestre que hace falta; RN-11
-  solo la permite si se recalcula desde los movimientos.
+- **Existencia en caché**: el modelo de datos la sugiere por volumen. Hoy es la
+  vista `v_existencia`. No materializarla hasta que una medición sobre los 3.000
+  productos de prueba lo justifique; RN-11 solo la permite si se recalcula desde
+  los movimientos y nunca se edita.
+- **Migraciones**: `abrir()` ejecuta `esquema.sql` completo en cada apertura y
+  es idempotente (`IF NOT EXISTS` + `INSERT OR IGNORE`). Alcanza mientras el
+  esquema solo crezca; el día que haya que cambiar una columna existente hace
+  falta versionado con `PRAGMA user_version`.
 
 ## Los tres desvíos más probables
 

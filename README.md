@@ -11,9 +11,11 @@ Borealis Software Solutions · Opción C.
 ```
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install pytest
 pytest
 ```
+
+`pip install -e ".[dev]"` recién hace falta cuando entre PySide6, en la Fase 1.
 
 ## Estructura
 
@@ -32,12 +34,11 @@ erratas detectadas en la documentación. Leerlo antes de tocar código.
 
 ## Estado
 
-Fase 0 (Cimientos) sin empezar. El repositorio contiene el andamiaje y la
-documentación; todavía no hay código de la aplicación.
+Fase 0 terminada. Siguiente: Fase 1.
 
 | Fase | Alcance | Requisitos |
 |------|---------|-----------|
-| 0 | Cimientos: dinero, impuestos, esquema, conexión | RN-03, RN-05, RN-08, RN-09 |
+| 0 ✅ | Cimientos: dinero, impuestos, esquema, conexión | RN-03, RN-05, RN-08, RN-09 |
 | 1 | Catálogo y tasa del día | RF-01 a RF-13 |
 | 2 | Compras, costos e inventario | RF-14 a RF-27 |
 | 3 | Ventas y caja | RF-34 a RF-45 |

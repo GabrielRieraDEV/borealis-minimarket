@@ -25,3 +25,6 @@ minimarket = ["datos/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Permite correr pytest sin instalar el paquete. Hasta la Fase 6 no hace falta
+# `pip install -e .`, que arrastraria PySide6 sin que todavia se use.
+pythonpath = ["."]
