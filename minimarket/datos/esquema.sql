@@ -410,6 +410,7 @@ INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES
     ('negocio.rif',            '',       'RIF del establecimiento'),
     ('negocio.direccion',      '',       'Direccion fiscal'),
     ('negocio.telefono',       '',       'Telefono de contacto'),
+    ('negocio.logo',           '',       'Ruta del archivo de logotipo para los reportes'),
     ('precio.redondeo_bs',     '1',      'Multiplo de redondeo del precio en bolivares'),
     ('precio.modo_redondeo',   'ARRIBA', 'Sentido del redondeo comercial'),
     ('vencimiento.dias_aviso', '15',     'Dias de aviso por defecto'),

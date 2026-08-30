@@ -108,9 +108,10 @@ def imprimir(lineas: list[str], destino: str) -> None:
         impresora.close()
     except Exception as error:  # papel, puerto ocupado, impresora apagada
         _bitacora.warning("No se pudo imprimir la nota de entrega: %s", error)
-        raise ErrorImpresion(
-            f"No se pudo imprimir en «{destino}»: {error}. La venta quedo "
-            "registrada; podes reimprimir la nota cuando la impresora responda."
+        raise ErrorImpresion(  # RNF-09: el detalle tecnico va a la bitacora
+            f"No se pudo imprimir en «{destino}». Revisa que este encendida, "
+            "conectada y con papel. La venta quedo registrada; podes "
+            "reimprimir la nota cuando la impresora responda."
         ) from error
 
 

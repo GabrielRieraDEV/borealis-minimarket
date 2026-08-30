@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from minimarket.datos.conexion import transaccion
 from minimarket.datos.repositorios import configuracion as repo_configuracion
 from minimarket.dominio.usuario import CONFIGURAR
-from minimarket.infra import auditoria, respaldo as infra_respaldo
+from minimarket.infra import auditoria, bitacora, respaldo as infra_respaldo
 from minimarket.servicios import ErrorServicio, usuario_actual
 from minimarket.servicios import usuarios as servicio_usuarios
 
@@ -37,6 +37,11 @@ CAMPOS: list[Campo] = [
     Campo("negocio.rif", "RIF"),
     Campo("negocio.direccion", "Direccion fiscal"),
     Campo("negocio.telefono", "Telefono"),
+    Campo(
+        "negocio.logo",
+        "Logotipo",
+        "Archivo de imagen que encabeza los reportes en PDF. Vacio: sin logo",
+    ),
     Campo(
         "precio.redondeo_bs",
         "Redondeo del precio en Bs",
@@ -103,7 +108,7 @@ def datos_del_negocio(conexion: sqlite3.Connection) -> dict[str, str]:
     """RF-64. El encabezado que llevan la nota de entrega y los PDF."""
     return {
         clave: repo_configuracion.leer(conexion, f"negocio.{clave}")
-        for clave in ("nombre", "rif", "direccion", "telefono")
+        for clave in ("nombre", "rif", "direccion", "telefono", "logo")
     }
 
 
@@ -152,9 +157,13 @@ def restaurar(conexion: sqlite3.Connection, origen: str) -> None:
     autor = usuario_actual()
     try:
         infra_respaldo.restaurar(conexion, origen)
-    except (OSError, ValueError, sqlite3.Error) as error:
+    except ValueError as error:  # el archivo no es un respaldo de este sistema
+        raise ErrorConfiguracion(str(error)) from error
+    except (OSError, sqlite3.Error) as error:
+        bitacora.anotar(f"Fallo la restauracion desde {origen}", error)  # RNF-09
         raise ErrorConfiguracion(
-            f"No se pudo restaurar el respaldo: {error}"
+            "No se pudo leer el archivo de respaldo. Revisa que la unidad "
+            "este conectada y que el archivo no se haya movido."
         ) from error
     with transaccion(conexion):
         auditoria.registrar(

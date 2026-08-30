@@ -15,7 +15,10 @@ respaldos/
 # Empaquetado (Fase 6)
 build/
 dist/
+instalador/salida/
 *.spec
+# minimarket.spec si va: es la receta del empaquetado, no su salida.
+!minimarket.spec
 
 # Bitácora
 *.log

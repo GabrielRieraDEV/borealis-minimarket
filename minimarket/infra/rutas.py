@@ -13,6 +13,7 @@ from pathlib import Path
 
 CARPETA = "Minimarket"
 ARCHIVO = "minimarket.db"
+BITACORA = "minimarket.log"
 
 
 def base_de_datos() -> Path:
@@ -23,3 +24,8 @@ def base_de_datos() -> Path:
     carpeta = Path.home() / CARPETA
     carpeta.mkdir(parents=True, exist_ok=True)
     return carpeta / ARCHIVO
+
+
+def bitacora() -> Path:
+    """RNF-13. El archivo de errores, al lado de la base."""
+    return base_de_datos().with_name(BITACORA)

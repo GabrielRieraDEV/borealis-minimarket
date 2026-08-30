@@ -83,55 +83,6 @@ class DialogoIngreso(QDialog):
         self.accept()
 
 
-class DialogoClaveInicial(QDialog):
-    """Primer arranque: el `admin` semilla no tiene clave y no puede entrar."""
-
-    def __init__(
-        self,
-        conexion: sqlite3.Connection,
-        usuario: Usuario,
-        padre: QWidget | None = None,
-    ) -> None:
-        super().__init__(padre)
-        self.conexion = conexion
-        self.usuario = usuario
-        self.setWindowTitle("Clave del administrador")
-
-        self.clave = QLineEdit()
-        self.clave.setEchoMode(QLineEdit.Password)
-        self.repetida = QLineEdit()
-        self.repetida.setEchoMode(QLineEdit.Password)
-
-        botones = QDialogButtonBox(QDialogButtonBox.Ok, parent=self)
-        botones.button(QDialogButtonBox.Ok).setText("Establecer clave")
-        botones.accepted.connect(self.guardar)
-
-        formulario = QFormLayout()
-        formulario.addRow("Clave:", self.clave)
-        formulario.addRow("Repetir clave:", self.repetida)
-
-        disposicion = QVBoxLayout(self)
-        disposicion.addWidget(
-            QLabel(
-                f"El usuario «{usuario.usuario}» todavia no tiene clave.\n"
-                "Establecela para poder entrar al sistema."
-            )
-        )
-        disposicion.addLayout(formulario)
-        disposicion.addWidget(botones)
-
-    def guardar(self) -> None:
-        if self.clave.text() != self.repetida.text():
-            avisar(self, "Las dos claves no coinciden.")
-            return
-        try:
-            servicio_usuarios.establecer_clave_inicial(self.conexion, self.clave.text())
-        except ErrorServicio as error:
-            avisar(self, str(error))
-            return
-        self.accept()
-
-
 class DialogoAutorizacion(QDialog):
     """RN-25. El administrador autoriza sin desplazar al cajero de la sesion.
 

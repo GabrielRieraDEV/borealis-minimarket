@@ -53,7 +53,7 @@ class TestApertura:
         esperado = {
             "alicuota_iva": 3,
             "motivo_perdida": 5,
-            "configuracion": 11,
+            "configuracion": 12,
             "usuario": 1,
         }
         for tabla, cuantos in esperado.items():

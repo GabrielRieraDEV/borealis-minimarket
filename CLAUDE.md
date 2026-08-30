@@ -80,7 +80,7 @@ con ella. Las pantallas la reciben ya abierta y no saben de dónde salió.
 
 ## Estado del proyecto
 
-Fase actual: **Fase 6 — Empaquetado y puesta en marcha** (sin empezar).
+Fase actual: **terminado**. Las siete fases estan cerradas.
 
 Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
 `datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
@@ -122,6 +122,13 @@ interfaz (`ui/perdidas.py` con el registro y el panel de vencimientos,
 Antes de la Fase 6 se saldó la deuda anotada: `ui/` dejó de importar
 `datos/`, el arranque se movió a `minimarket/__main__.py` con
 `infra/rutas.py`, y se midió RNF-04 sobre un mes de operación. 272 pruebas.
+
+Fase 6 terminada: `infra/bitacora.py` (RNF-13), `ui/asistente.py` (asistente de
+primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.py`,
+`minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
+`herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
+(`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
+283 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -338,16 +345,55 @@ Saldadas antes de la Fase 6:
   marca vencimiento en charcutería, carnicería y hortalizas, porque sin lotes
   la medición de RF-31 y RF-54 corría sobre una tabla vacía.
 
-Pendientes para fases posteriores:
+Resueltas en la Fase 6:
 
-- **Clave del administrador en el primer arranque**: hoy la pide
-  `ui/principal.ingresar` con `DialogoClaveInicial`, porque sin eso no se puede
-  entrar. La Fase 6 lo mueve al asistente de instalación; el servicio
-  (`usuarios.establecer_clave_inicial`) no cambia.
-- **Mensajes de error (RNF-09)**: `configuracion.restaurar` e
-  `infra/respaldo.ejecutar` incrustan el texto de la excepción del sistema
-  operativo. Ayuda a entender qué pasó, pero es detalle técnico. La revisión
-  completa de mensajes es el punto 3 de la Fase 6.
+- **Clave del administrador**: `DialogoClaveInicial` se borró.
+  `ui/asistente.AsistentePrimerArranque` ocupa su lugar y en la misma pantalla
+  deja la clave, los datos fiscales, el logotipo, la carpeta de respaldo y la
+  primera tasa. Sigue llamando a `usuarios.establecer_clave_inicial`, que no
+  cambió. Lo único obligatorio es la clave: trabar la instalación porque el
+  cliente todavía no eligió pendrive no ayuda a nadie.
+- **RNF-09 y RNF-13 son la misma decisión**: `infra/bitacora.anotar` guarda el
+  texto de la excepción del sistema operativo en el archivo y la pantalla
+  muestra qué hacer. Los cuatro puntos que incrustaban el error técnico
+  (`respaldo.ejecutar`, `configuracion.restaurar`, `impresora.imprimir`,
+  `ui/reportes.exportar`) pasaron por ahí. El resto de los `avisar(str(error))`
+  se revisó y queda: son `ErrorServicio`, redactados para el usuario.
+- **Una excepción no controlada no cierra la aplicación**: `bitacora.configurar`
+  instala `sys.excepthook`, que registra con traza y avisa. El aviso lo pone
+  `ui/comunes.avisar_error_no_controlado`, para que `infra/` no importe Qt.
+- **`negocio.logo`** es una clave de configuración más y se dibuja en el
+  encabezado de los PDF. En la nota de entrega no: la impresora térmica pide
+  convertir la imagen a raster y eso es otro problema. Un logo ilegible no
+  tumba el reporte, sale sin logo y queda anotado.
+- **Importación de catálogo: todo o nada.** Con una fila mal, no entra ninguna
+  y se devuelve la lista de errores por fila. Importar «las que se pueda»
+  dejaría el archivo a medio cargar, y la segunda pasada duplicaría todo
+  producto sin código de barras. Vive en `servicios/catalogo.py` y no en un
+  módulo aparte, porque reusa la misma validación que el alta de a uno.
+  Solo CSV: leer `.xlsx` nativo pide openpyxl entero para un archivo que el
+  cliente carga una vez.
+- **Las categorías no se crean solas** al importar: la fila se rechaza con el
+  nombre que no existe. Inventarles un margen objetivo rompería RN-09 en
+  silencio para todos sus productos.
+- **La carpeta de datos la crea la aplicación, no el instalador**: el `.iss`
+  no tiene sección `[Dirs]`. El instalador corre elevado y armaría la carpeta
+  en el perfil del administrador, no en el de quien atiende la caja. Como no la
+  crea, tampoco la borra al desinstalar.
+- **Las capturas del manual se generan por programa**
+  (`herramientas/capturas.py` con `QWidget.grab()` sobre la base de
+  demostración). Hechas a mano envejecen con la primera pantalla que cambie.
+- **La base de demostración no reusa `tests/datos_prueba.py`**: ese genera
+  3.000 productos con nombres inventados para medir tiempos y para capacitar
+  hace falta lo contrario, un puñado de productos que el cajero reconozca.
+
+Pendientes:
+
+- **Icono de la aplicación**: no hay. Cuando el cliente mande el suyo va como
+  `recursos/minimarket.ico` y se nombra en `icon=` del `.spec` y en el `.iss`.
+- **El `.iss` no está compilado ni probado**: hace falta Inno Setup 6.3 en el
+  equipo que arma la entrega. El `.spec` sí: `dist/Minimarket/Minimarket.exe`
+  arranca, crea la base y escribe la bitácora.
 - **Migraciones**: `abrir()` ejecuta `esquema.sql` completo en cada apertura y
   es idempotente (`IF NOT EXISTS` + `INSERT OR IGNORE`). Alcanza mientras el
   esquema solo crezca. El día que haya que cambiar una columna existente hace

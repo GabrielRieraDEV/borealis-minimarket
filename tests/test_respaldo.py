@@ -72,7 +72,9 @@ def test_rf62_la_unidad_que_no_esta_no_rompe_la_aplicacion(conexion, tmp_path):
     )
     registro = servicio_configuracion.respaldar(conexion)
     assert not registro.ok
-    assert "No se pudo respaldar" in registro.mensaje
+    # RNF-09. El mensaje dice que revisar; el WinError va a la bitacora.
+    assert "unidad" in registro.mensaje
+    assert "WinError" not in registro.mensaje
 
 
 def test_el_respaldo_automatico_corre_una_vez_por_dia(conexion, destino):

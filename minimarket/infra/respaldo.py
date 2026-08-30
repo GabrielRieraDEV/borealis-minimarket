@@ -17,6 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from minimarket.datos.conexion import transaccion
+from minimarket.infra import bitacora
 
 OK = "OK"
 ERROR = "ERROR"
@@ -59,12 +60,16 @@ def ejecutar(conexion: sqlite3.Connection, carpeta: str) -> Registro:
         finally:
             copia.close()
     except (OSError, sqlite3.Error) as error:
+        # RNF-09. El mensaje que se guarda y se muestra dice que hacer; el
+        # detalle del sistema operativo queda en la bitacora (RNF-13).
+        bitacora.anotar(f"Fallo el respaldo hacia {destino}", error)
         return _registrar(
             conexion,
             str(destino),
             None,
             ERROR,
-            f"No se pudo respaldar: {error}",
+            "No se pudo escribir en la carpeta de respaldo. Revisa que la "
+            "unidad este conectada y que la carpeta configurada exista.",
         )
     return _registrar(conexion, str(destino), destino.stat().st_size, OK, None)
 

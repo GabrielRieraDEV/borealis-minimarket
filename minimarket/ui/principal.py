@@ -16,9 +16,16 @@ comodidad, no seguridad: quien corta cada operacion es la capa de servicios.
 
 import sqlite3
 import sys
+from pathlib import Path
 
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QApplication, QDialog, QMainWindow, QTabWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QMainWindow,
+    QTabWidget,
+)
 
 from minimarket.dominio.usuario import (
     CONFIGURAR,
@@ -33,11 +40,15 @@ from minimarket.dominio.usuario import (
     VER_EXISTENCIAS,
     Usuario,
 )
+from minimarket.infra import bitacora
+from minimarket.servicios import ErrorServicio
+from minimarket.servicios import catalogo as servicio_catalogo
 from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.servicios import usuarios as servicio_usuarios
+from minimarket.ui.asistente import AsistentePrimerArranque
 from minimarket.ui.categorias import PantallaCategorias
-from minimarket.ui.comunes import avisar, formato
+from minimarket.ui.comunes import avisar, detallar, formato
 from minimarket.ui.compras import PantallaCompras, PantallaProveedores
 from minimarket.ui.configuracion import DialogoConfiguracion
 from minimarket.ui.gastos import PantallaGastos
@@ -47,11 +58,7 @@ from minimarket.ui.perdidas import PantallaPerdidas
 from minimarket.ui.productos import PantallaProductos
 from minimarket.ui.reportes import PantallaReportes
 from minimarket.ui.tasa import DialogoTasa
-from minimarket.ui.usuarios import (
-    DialogoClaveInicial,
-    DialogoIngreso,
-    PantallaUsuarios,
-)
+from minimarket.ui.usuarios import DialogoIngreso, PantallaUsuarios
 from minimarket.ui.venta import PantallaVenta
 
 
@@ -89,6 +96,14 @@ class VentanaPrincipal(QMainWindow):
         self.pestanas.currentChanged.connect(self.refrescar)
         self.setCentralWidget(self.pestanas)
 
+        if usuario.puede(MODIFICAR_PRECIOS):
+            menu.addSeparator()
+            menu.addAction(
+                self._accion("Importar catalogo desde CSV…", "", self.importar)
+            )
+            menu.addAction(
+                self._accion("Guardar plantilla de catalogo…", "", self.plantilla)
+            )
         if usuario.puede(CONFIGURAR):
             menu.addSeparator()
             menu.addAction(self._accion("&Tasa del dia…", "F5", self.cargar_tasa))
@@ -114,6 +129,56 @@ class VentanaPrincipal(QMainWindow):
         if DialogoTasa(self.conexion, self).exec() == QDialog.Accepted:
             self.refrescar()
 
+    def importar(self) -> None:
+        """Carga inicial del catalogo desde CSV (punto 7 de la Fase 6).
+
+        Los errores por fila van en el detalle desplegable del aviso: pueden
+        ser cientos y no entran en un cartel.
+        """
+        ruta, _ = QFileDialog.getOpenFileName(
+            self, "Elegi el archivo del catalogo", "", "Archivos CSV (*.csv)"
+        )
+        if not ruta:
+            return
+        try:
+            resultado = servicio_catalogo.importar_csv(self.conexion, ruta)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        if resultado.errores:
+            detallar(
+                self,
+                f"No se cargo ningun producto: hay {len(resultado.errores)} "
+                "filas con problemas. Corregilas en el archivo y volve a "
+                "importarlo.",
+                resultado.errores,
+                "El archivo tiene errores",
+            )
+            return
+        avisar(
+            self,
+            f"Se cargaron {resultado.creados} productos.",
+            "Catalogo importado",
+        )
+        self.refrescar()
+
+    def plantilla(self) -> None:
+        """El archivo de ejemplo con las columnas que espera la importacion."""
+        ruta, _ = QFileDialog.getSaveFileName(
+            self, "Guardar plantilla", "catalogo.csv", "Archivos CSV (*.csv)"
+        )
+        if not ruta:
+            return
+        try:
+            Path(ruta).write_text(
+                servicio_catalogo.plantilla_csv(), encoding="utf-8-sig"
+            )
+        except OSError as error:
+            bitacora.anotar(f"No se pudo escribir la plantilla en {ruta}", error)
+            avisar(self, "No se pudo guardar la plantilla en esa carpeta.")
+            return
+        avisar(self, f"Plantilla guardada en {ruta}.", "Plantilla")
+
     def configurar(self) -> None:
         """RF-64, RF-61 a RF-63 y la bitacora de RF-59."""
         DialogoConfiguracion(self.conexion, self).exec()
@@ -133,10 +198,11 @@ class VentanaPrincipal(QMainWindow):
 
 
 def ingresar(conexion: sqlite3.Connection, padre=None) -> Usuario | None:
-    """RF-56. Pide la clave inicial si el administrador todavia no tiene."""
+    """RF-56. En el primer arranque corre el asistente de puesta en marcha."""
     semilla = servicio_usuarios.necesita_clave_inicial(conexion)
     if semilla is not None:
-        if DialogoClaveInicial(conexion, semilla, padre).exec() != QDialog.Accepted:
+        asistente = AsistentePrimerArranque(conexion, semilla, padre)
+        if asistente.exec() != QDialog.Accepted:
             return None
     dialogo = DialogoIngreso(conexion, padre)
     return dialogo.usuario if dialogo.exec() == QDialog.Accepted else None

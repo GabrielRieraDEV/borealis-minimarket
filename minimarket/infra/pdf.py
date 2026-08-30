@@ -12,10 +12,21 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    Image,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+from minimarket.infra import bitacora
 
 # Mas de esto no entra legible ni en horizontal.
 COLUMNAS_APAISADO = 6
+
+ALTO_LOGO = 15 * mm  # el ancho sale de la proporcion de la imagen
 
 _GRIS = colors.HexColor("#e8e8e8")
 _LINEA = colors.HexColor("#999999")
@@ -51,6 +62,9 @@ def exportar(
     )
 
     contenido = []
+    logo = _logo((negocio or {}).get("logo", ""))
+    if logo is not None:
+        contenido.append(logo)
     for linea in _encabezado(negocio or {}):
         contenido.append(Paragraph(linea, estilos["Normal"]))
     contenido.append(Spacer(1, 6 * mm))
@@ -83,6 +97,25 @@ def exportar(
 
     documento.build(contenido)
     return destino
+
+
+def _logo(ruta: str) -> Image | None:
+    """RF-64. El logotipo configurado, escalado a `ALTO_LOGO`.
+
+    Un logo ilegible o borrado no puede tumbar un reporte: si reportlab no lo
+    puede leer, el PDF sale sin logo y el motivo queda en la bitacora.
+    """
+    if not ruta.strip() or not Path(ruta).is_file():
+        return None
+    try:
+        imagen = Image(ruta)
+        imagen.drawWidth *= ALTO_LOGO / imagen.drawHeight
+        imagen.drawHeight = ALTO_LOGO
+        imagen.hAlign = "LEFT"
+        return imagen
+    except Exception as error:  # formato no soportado, archivo cortado
+        bitacora.anotar(f"No se pudo incrustar el logotipo {ruta}", error)
+        return None
 
 
 def _encabezado(negocio: dict[str, str]) -> list[str]:

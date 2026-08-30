@@ -8,7 +8,7 @@ import sqlite3
 from decimal import Decimal, InvalidOperation
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QMessageBox, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QMessageBox, QWidget
 
 from minimarket.servicios import catalogo
 
@@ -54,6 +54,33 @@ def combo_productos(conexion: sqlite3.Connection) -> QComboBox:
 
 def avisar(padre: QWidget, mensaje: str, titulo: str = "Atencion") -> None:
     QMessageBox.warning(padre, titulo, mensaje)
+
+
+def detallar(
+    padre: QWidget, mensaje: str, detalle: list[str], titulo: str = "Atencion"
+) -> None:
+    """Aviso con el detalle largo plegado, para listas de errores por fila."""
+    caja = QMessageBox(QMessageBox.Warning, titulo, mensaje, parent=padre)
+    caja.setDetailedText("\n".join(detalle))
+    caja.exec()
+
+
+def avisar_error_no_controlado(archivo) -> None:
+    """RNF-09 / RNF-13. Lo que se muestra cuando revienta algo no previsto.
+
+    Se llama desde el manejador de `infra/bitacora.py`, que puede dispararse
+    antes de que exista la ventana: sin QApplication no hay donde dibujar y el
+    error ya quedo en el archivo, que es lo que importa.
+    """
+    if QApplication.instance() is None:
+        return
+    QMessageBox.critical(
+        None,
+        "Ocurrio un error inesperado",
+        "La operacion no se pudo completar. Volve a intentarla; si el "
+        "problema se repite, cerra y volve a abrir el sistema.\n\n"
+        f"El detalle quedo anotado en:\n{archivo}",
+    )
 
 
 def confirmar(padre: QWidget, mensaje: str, titulo: str = "Confirmar") -> bool:

@@ -6,16 +6,75 @@ de venta, caja, pérdidas y reportes.
 
 Borealis Software Solutions · Opción C.
 
-## Puesta en marcha para desarrollo
+El manual del usuario final está en
+[`docs/manual-de-usuario.md`](docs/manual-de-usuario.md).
+
+## Instalación en el equipo del cliente
+
+1. Ejecutar `minimarket-instalador.exe` y aceptar la ruta que propone. Pide
+   permisos de administrador una sola vez, para escribir en Archivos de
+   programa; después la aplicación corre como usuario común.
+2. Abrir **Minimarket** desde el escritorio o el menú de inicio.
+3. En el primer arranque aparece el **asistente de puesta en marcha**: clave del
+   administrador, datos fiscales, logotipo, carpeta de respaldo y tasa del día.
+   Lo único obligatorio es la clave; el resto se completa después en
+   Archivo → Configuración.
+4. Cargar el catálogo. Para más de unas decenas de productos conviene el
+   importador: Archivo → *Guardar plantilla de catálogo…*, completarla en Excel
+   y Archivo → *Importar catálogo desde CSV…*.
+
+No hay servicios que configurar ni base de datos que instalar aparte (RNF-11).
+
+### Dónde queda cada cosa
+
+| | Ruta |
+|--|------|
+| Programa | `C:\Archivos de programa\Minimarket` |
+| Base de datos | `%USERPROFILE%\Minimarket\minimarket.db` |
+| Bitácora de errores | `%USERPROFILE%\Minimarket\minimarket.log` |
+| Respaldos | la carpeta configurada, normalmente una unidad externa |
+
+La base **no** vive dentro de Archivos de programa: ahí el usuario no tiene
+permiso de escritura. Desinstalar el programa no borra la base ni los
+respaldos. La variable de entorno `MINIMARKET_DB` cambia de lugar el archivo,
+que es como se trabaja sobre la base de demostración sin tocar la real.
+
+Si hay que reportar un problema, el archivo a mandar es `minimarket.log`.
+
+## Desarrollo
 
 ```
 python -m venv .venv
 .venv\Scripts\activate
-pip install pytest
+pip install -e ".[dev]"
 pytest
+python -m minimarket
 ```
 
-`pip install -e ".[dev]"` recién hace falta cuando entre PySide6, en la Fase 1.
+### Base de demostración para capacitar
+
+```
+python -m herramientas.demostracion
+set MINIMARKET_DB=%USERPROFILE%\Minimarket\demostracion.db
+python -m minimarket
+```
+
+Deja un minimarket andando: catálogo, existencia con lotes por vencer, la caja
+del día abierta, ventas hechas, una pérdida y un gasto. Usuarios `admin` /
+`demo1234` y `maria` / `caja1234`. Se puede rehacer las veces que haga falta.
+
+Las capturas del manual se regeneran con `python -m herramientas.capturas`
+sobre esa misma base.
+
+### Empaquetado
+
+```
+pyinstaller minimarket.spec --noconfirm
+ISCC.exe instalador\minimarket.iss
+```
+
+El primer comando deja `dist\Minimarket\` (modo onedir) y el segundo
+`instalador\salida\minimarket-instalador.exe`. Inno Setup 6.3 o superior.
 
 ## Estructura
 
@@ -24,9 +83,11 @@ minimarket/dominio/     cálculos puros (dinero, IVA, márgenes, inventario, ven
 minimarket/datos/       esquema SQLite y repositorios con SQL a mano
 minimarket/servicios/   casos de uso transaccionales
 minimarket/ui/          ventanas PySide6
-minimarket/infra/       impresora, tasa BCV, respaldo, bitácora, configuración
+minimarket/infra/       impresora, tasa BCV, respaldo, bitácora, PDF, rutas
+herramientas/           base de demostración y capturas del manual
 tests/                  pruebas pytest
-docs/                   requisitos, reglas de negocio, modelo de datos, plan de fases
+docs/                   requisitos, reglas de negocio, modelo de datos, manual
+instalador/             script de Inno Setup
 ```
 
 `CLAUDE.md` en la raíz tiene las reglas de implementación innegociables y las
@@ -34,16 +95,16 @@ erratas detectadas en la documentación. Leerlo antes de tocar código.
 
 ## Estado
 
-Fase 0 terminada. Siguiente: Fase 1.
+Las siete fases están terminadas.
 
 | Fase | Alcance | Requisitos |
 |------|---------|-----------|
 | 0 ✅ | Cimientos: dinero, impuestos, esquema, conexión | RN-03, RN-05, RN-08, RN-09 |
-| 1 | Catálogo y tasa del día | RF-01 a RF-13 |
-| 2 | Compras, costos e inventario | RF-14 a RF-27 |
-| 3 | Ventas y caja | RF-34 a RF-45 |
-| 4 | Usuarios, reportes y respaldo | RF-48 a RF-64 |
-| 5 | Pérdidas, vencimientos y resultados | RF-28 a RF-33, RF-46, RF-47, RF-53 a RF-55 |
-| 6 | Empaquetado y puesta en marcha | RNF-11 a RNF-13 |
+| 1 ✅ | Catálogo y tasa del día | RF-01 a RF-13 |
+| 2 ✅ | Compras, costos e inventario | RF-14 a RF-27 |
+| 3 ✅ | Ventas y caja | RF-34 a RF-45 |
+| 4 ✅ | Usuarios, reportes y respaldo | RF-48 a RF-64 |
+| 5 ✅ | Pérdidas, vencimientos y resultados | RF-28 a RF-33, RF-46, RF-47, RF-53 a RF-55 |
+| 6 ✅ | Empaquetado y puesta en marcha | RNF-11 a RNF-13 |
 
 El detalle de cada fase está en `docs/plan-de-fases-claude-code.md`.

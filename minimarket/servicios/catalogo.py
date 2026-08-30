@@ -4,8 +4,10 @@ La interfaz no habla con `datos/`: entra por aca. Los errores salen como
 `ErrorCatalogo` con un mensaje ya redactado para el usuario final (RNF-09).
 """
 
+import csv
 import sqlite3
-from decimal import Decimal
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from minimarket.datos.conexion import transaccion
 from minimarket.datos.repositorios import alicuota as repo_alicuota
@@ -250,6 +252,171 @@ def guardar_categoria(conexion: sqlite3.Connection, categoria: Categoria) -> int
             raise ErrorCatalogo(
                 f"Ya existe una categoria llamada «{categoria.nombre}»."
             ) from error
+
+
+# --- Carga inicial desde CSV (punto 7 de la Fase 6) -------------------------
+
+COLUMNAS_CSV = [
+    "nombre",
+    "categoria",
+    "alicuota",
+    "precio_venta_usd",
+    "codigo_barras",
+    "margen_objetivo",
+    "existencia_minima",
+    "maneja_vencimiento",
+    "dias_alerta_venc",
+]
+OBLIGATORIAS = COLUMNAS_CSV[:4]
+
+# ponytail: CSV y nada mas. Excel entra guardando como «CSV UTF-8» desde el
+# mismo Excel; leer .xlsx nativo pide openpyxl, una dependencia entera para un
+# archivo que el cliente carga una vez en la vida.
+
+
+@dataclass(frozen=True)
+class ResultadoImportacion:
+    """Lo que dejo la carga: cuantos entraron y que fila fallo."""
+
+    creados: int
+    errores: list[str]
+
+
+def plantilla_csv() -> str:
+    """El encabezado que el archivo tiene que traer, con una fila de ejemplo."""
+    return (
+        ",".join(COLUMNAS_CSV)
+        + "\nHarina de maiz 1 kg,Viveres,GENERAL,1.20,7591234567890,,10,0,15\n"
+    )
+
+
+def importar_csv(conexion: sqlite3.Connection, ruta: str) -> ResultadoImportacion:
+    """RF-01 en lote. Todo o nada: con un solo error no se carga ninguno.
+
+    Es la carga inicial de mas de mil productos. Importar «los que se pueda»
+    dejaria el archivo a medio entrar y la segunda pasada duplicaria los
+    productos sin codigo de barras. Se corrigen las filas que el reporte
+    nombra y se vuelve a importar.
+    """
+    servicio_usuarios.exigir(conexion, MODIFICAR_PRECIOS)
+    categorias = {
+        c.nombre.strip().lower(): c.id
+        for c in repo_categoria.listar(conexion, solo_activas=False)
+    }
+    alicuotas = {a.codigo.upper(): a.id for a in repo_alicuota.listar(conexion)}
+
+    productos: list[tuple[int, Producto]] = []  # (fila del archivo, producto)
+    errores: list[str] = []
+    try:
+        with open(ruta, encoding="utf-8-sig", newline="") as archivo:
+            lector = csv.DictReader(archivo)
+            faltantes = [c for c in OBLIGATORIAS if c not in (lector.fieldnames or [])]
+            if faltantes:
+                raise ErrorCatalogo(
+                    "Al archivo le faltan columnas: "
+                    + ", ".join(faltantes)
+                    + ". La primera fila tiene que ser: "
+                    + ", ".join(COLUMNAS_CSV)
+                )
+            for numero, fila in enumerate(lector, start=2):  # 1 es el encabezado
+                try:
+                    productos.append(
+                        (numero, _desde_fila(fila, categorias, alicuotas))
+                    )
+                except ErrorCatalogo as error:
+                    errores.append(f"Fila {numero}: {error}")
+    except OSError as error:
+        raise ErrorCatalogo(
+            "No se pudo leer el archivo. Revisa que exista y que no este "
+            "abierto en otro programa."
+        ) from error
+    except UnicodeDecodeError as error:
+        raise ErrorCatalogo(
+            "El archivo no esta en formato UTF-8. Volve a guardarlo desde "
+            "Excel como «CSV UTF-8 (delimitado por comas)»."
+        ) from error
+
+    errores.extend(_codigos_repetidos(productos))
+    if errores or not productos:
+        return ResultadoImportacion(0, errores or ["El archivo no tiene filas."])
+    with transaccion(conexion):
+        for _, producto in productos:
+            try:
+                repo_producto.crear(conexion, producto)
+            except sqlite3.IntegrityError as error:
+                raise _error_codigo_repetido(producto, error) from error
+    return ResultadoImportacion(len(productos), [])
+
+
+def _desde_fila(
+    fila: dict[str, str], categorias: dict[str, int], alicuotas: dict[str, int]
+) -> Producto:
+    """Una fila del CSV convertida a Producto, o `ErrorCatalogo` con el motivo."""
+    nombre = (fila.get("nombre") or "").strip()
+    if not nombre:
+        raise ErrorCatalogo("falta el nombre del producto.")
+    categoria = (fila.get("categoria") or "").strip().lower()
+    if categoria not in categorias:
+        raise ErrorCatalogo(
+            f"la categoria «{fila.get('categoria', '').strip()}» no existe. "
+            "Creala primero en la pantalla de categorias."
+        )
+    codigo_alicuota = (fila.get("alicuota") or "").strip().upper()
+    if codigo_alicuota not in alicuotas:
+        raise ErrorCatalogo(
+            f"la alicuota «{codigo_alicuota}» no existe. Usa una de: "
+            + ", ".join(sorted(alicuotas))
+        )
+    precio = _numero(fila, "precio_venta_usd", Decimal(0))
+    if precio < 0:
+        raise ErrorCatalogo("el precio de venta no puede ser negativo.")
+    minima = _numero(fila, "existencia_minima", Decimal(0))
+    if minima < 0:
+        raise ErrorCatalogo("la existencia minima no puede ser negativa.")
+    codigo = (fila.get("codigo_barras") or "").strip()
+    return Producto(
+        nombre=nombre,
+        categoria_id=categorias[categoria],
+        alicuota_iva_id=alicuotas[codigo_alicuota],
+        precio_venta_usd=precio,
+        codigo_barras=codigo or None,
+        margen_objetivo=_numero(fila, "margen_objetivo", None),
+        existencia_minima=minima,
+        maneja_vencimiento=_bandera(fila.get("maneja_vencimiento")),
+        dias_alerta_venc=int(_numero(fila, "dias_alerta_venc", Decimal(15))),
+    )
+
+
+def _numero(fila: dict[str, str], columna: str, defecto):
+    """Los importes aceptan coma o punto decimal, como el resto de la interfaz."""
+    texto = (fila.get(columna) or "").strip().replace(",", ".")
+    if not texto:
+        return defecto
+    try:
+        return Decimal(texto)
+    except InvalidOperation as error:
+        raise ErrorCatalogo(f"«{columna}» tiene que ser un numero.") from error
+
+
+def _bandera(texto: str | None) -> bool:
+    return (texto or "").strip().lower() in ("1", "si", "sí", "s", "true", "x")
+
+
+def _codigos_repetidos(productos: list[tuple[int, Producto]]) -> list[str]:
+    """El archivo puede traer el mismo codigo dos veces; SQLite lo diria una."""
+    vistos: dict[str, int] = {}
+    errores = []
+    for numero, producto in productos:
+        if producto.codigo_barras is None:
+            continue
+        if producto.codigo_barras in vistos:
+            errores.append(
+                f"Fila {numero}: el codigo de barras "
+                f"«{producto.codigo_barras}» ya aparece en la fila "
+                f"{vistos[producto.codigo_barras]}."
+            )
+        vistos[producto.codigo_barras] = numero
+    return errores
 
 
 def _validar(conexion: sqlite3.Connection, producto: Producto) -> None:

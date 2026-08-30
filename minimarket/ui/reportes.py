@@ -34,6 +34,7 @@ from minimarket.dominio.usuario import (
     VER_REPORTES,
 )
 from minimarket.dominio.venta import EFECTIVO
+from minimarket.infra import bitacora
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import reportes as servicio_reportes
@@ -196,7 +197,12 @@ class PantallaReportes(QWidget):
                 pie=self.reporte.pie,
             )
         except OSError as error:
-            avisar(self, f"No se pudo escribir el PDF: {error}")
+            bitacora.anotar(f"Fallo la exportacion a {destino}", error)  # RNF-09
+            avisar(
+                self,
+                "No se pudo guardar el PDF en esa carpeta. Elegi otra "
+                "ubicacion o cerra el archivo si ya lo tenes abierto.",
+            )
             return
         avisar(self, f"Reporte guardado en {destino}.", "Exportado")
 
