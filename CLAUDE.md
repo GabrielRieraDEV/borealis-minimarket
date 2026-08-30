@@ -74,20 +74,29 @@ tests/
 
 ## Estado del proyecto
 
-Fase actual: **Fase 1 — Catálogo y tasa del día** (sin empezar).
+Fase actual: **Fase 2 — Compras, costos e inventario** (sin empezar).
 
 Fase 0 terminada: `dominio/dinero.py`, `dominio/impuestos.py`,
 `datos/esquema.sql` (23 tablas + 2 vistas), `datos/conexion.py` y 80 pruebas
 que verifican los ejemplos A, B y C.
+
+Fase 1 terminada: `datos/repositorios/` (categoria, alicuota, producto, tasa,
+configuracion), `dominio/producto.py`, `dominio/tasa.py`, `servicios/catalogo.py`,
+`servicios/tasa.py`, `infra/bcv.py` y la interfaz (`ui/principal.py`,
+`ui/productos.py`, `ui/categorias.py`, `ui/tasa.py`, `ui/comunes.py`).
+116 pruebas. La app arranca con `python -m minimarket`.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
 
 ### Entorno
 
-`.venv` con pytest instalado. `pytest` se corre sin instalar el paquete:
-`pythonpath = ["."]` está en `pyproject.toml`. `pip install -e ".[dev]"` recién
-hace falta cuando entre PySide6, en la Fase 1.
+`.venv` con el paquete instalado en modo editable (`pip install -e ".[dev]"`),
+PySide6 incluido. `pythonpath = ["."]` en `pyproject.toml` mantiene a `pytest`
+corriendo sin depender de la instalación.
+
+La base vive en `~/Minimarket/minimarket.db`; la variable de entorno
+`MINIMARKET_DB` la cambia de lugar (útil para probar sin tocar la real).
 
 ## Erratas detectadas en la documentación
 
@@ -118,6 +127,23 @@ Resueltas en la Fase 0:
   `DISTINCT ON`. `SERIAL` → `INTEGER PRIMARY KEY AUTOINCREMENT`, `NOW()` →
   `datetime('now','localtime')`, `BOOLEAN` → `INTEGER` 0/1 con CHECK,
   `NUMERIC(x,y)` → `INTEGER` escalado.
+
+Resueltas en la Fase 1:
+
+- **`ultimo_costo` (RN-07)** vive en `datos/repositorios/producto.py` y lee la
+  vista `v_ultimo_costo`, porque RF-07 y RF-08 lo necesitan antes de que la
+  Fase 2 traiga el repositorio de compras. Si la Fase 2 crea el suyo, que
+  reutilice esta función en vez de duplicar la consulta.
+- **RF-08** se parte en `previsualizar_recalculo` + `aplicar_recalculo`: el
+  requisito exige confirmación previa del administrador, y así la pantalla
+  muestra exactamente lo que se va a aplicar. Los productos sin costo de compra
+  quedan fuera del recálculo.
+- **`infra/bcv.py`** raspa HTML de bcv.org.ve. Es frágil por naturaleza: ante
+  cualquier falla devuelve `None`, registra en `logging` y nunca propaga. La
+  carga manual (RF-11) es siempre la alternativa; RN-04 prohíbe heredar la tasa
+  de ayer.
+- **Dinero en la interfaz**: nunca `QDoubleSpinBox` (guarda `float`).
+  `ui/comunes.a_decimal` lee los campos de texto y acepta coma o punto.
 
 Pendientes para fases posteriores:
 
