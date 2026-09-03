@@ -61,7 +61,11 @@ CAMPOS: list[Campo] = [
     ),
     Campo("respaldo.ruta", "Carpeta de respaldo", "La unidad externa (RF-61)"),
     Campo("respaldo.hora", "Hora del respaldo", "A partir de esa hora, HH:MM"),
-    Campo("bcv.url", "Origen de la tasa BCV", "Vacio: usa el sitio oficial"),
+    Campo(
+        "bcv.url",
+        "Origen de la tasa BCV",
+        "Dejalo vacio: consulta bcv.org.ve. Solo se llena si el BCV cambia de sitio",
+    ),
 ]
 
 

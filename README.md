@@ -41,6 +41,17 @@ que es como se trabaja sobre la base de demostración sin tocar la real.
 
 Si hay que reportar un problema, el archivo a mandar es `minimarket.log`.
 
+### Volver a cero
+
+El instalador no lleva datos: en un equipo nuevo el sistema arranca vacío,
+con el asistente de puesta en marcha. Para dejar en cero un equipo donde ya
+se probó —el del desarrollador antes de entregar, o el del cliente después de
+la capacitación— se cierra el programa y se borra el contenido de
+`%USERPROFILE%\Minimarket` (`minimarket.db`, `minimarket.log` y los
+`.db-wal` / `.db-shm` si están). Al abrir de nuevo vuelve el asistente.
+`demostracion.db` es aparte y no molesta; se borra o no, según se quiera
+seguir capacitando.
+
 ## Desarrollo
 
 ```
