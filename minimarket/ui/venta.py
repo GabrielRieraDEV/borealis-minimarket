@@ -155,7 +155,7 @@ class PantallaVenta(QWidget):
         else:
             self.estado.setText(
                 f"Caja abierta desde {sesion.fecha_apertura} · "
-                f"tasa {formato(self.tasa, 6)} Bs/USD"
+                f"tasa {formato(self.tasa, 2)} Bs/USD"
             )
         self._pintar()
 

@@ -36,7 +36,7 @@ class DialogoTasa(QDialog):
 
         self.estado = QLabel()
         self.valor = QLineEdit()
-        self.valor.setPlaceholderText("Bolivares por dolar, por ejemplo 210,500000")
+        self.valor.setPlaceholderText("Bolivares por dolar, por ejemplo 804,81")
 
         boton_bcv = QPushButton("Consultar al &BCV")
         boton_bcv.clicked.connect(self.consultar_bcv)
@@ -69,7 +69,7 @@ class DialogoTasa(QDialog):
     def refrescar(self) -> None:
         vigente = servicio_tasa.tasa_del_dia(self.conexion)
         self.estado.setText(
-            f"Tasa de hoy: {formato(vigente, 6)} Bs/USD"
+            f"Tasa de hoy: {formato(vigente, 4)} Bs/USD"
             if vigente is not None
             else "Todavia no hay tasa cargada para hoy. Sin tasa no se puede "
             "abrir la caja ni registrar ventas."
@@ -79,7 +79,7 @@ class DialogoTasa(QDialog):
         for fila, registro in enumerate(registros):
             celdas = [
                 registro.fecha,
-                formato(registro.valor, 6),
+                formato(registro.valor, 4),
                 ORIGENES.get(registro.origen, registro.origen),
             ]
             for columna, texto in enumerate(celdas):
@@ -91,11 +91,12 @@ class DialogoTasa(QDialog):
         if valor is None:
             avisar(
                 self,
-                "No se pudo consultar la tasa del BCV. Revisa la conexion o "
-                "cargala a mano en el campo de arriba.",
+                "El BCV no respondio. Puede ser que no haya internet o que su "
+                "pagina este caida. Cargá la tasa a mano en el campo de arriba: "
+                "la publican en bcv.org.ve y en la prensa.",
             )
             return
-        self.valor.setText(str(valor))
+        self.valor.setText(formato(valor, 4).replace(",", ""))
         self.refrescar()
 
     def guardar(self) -> None:

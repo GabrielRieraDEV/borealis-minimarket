@@ -47,7 +47,7 @@ from minimarket.servicios import venta as servicio_venta
 ARCHIVO = "demostracion.db"
 CLAVE_ADMIN = "demo1234"
 CLAVE_CAJERO = "caja1234"
-TASA = Decimal("210.500000")
+TASA = Decimal("804.8109")  # la del BCV del 3 de septiembre de 2026
 
 CATEGORIAS = [
     ("Viveres", Decimal(30)),

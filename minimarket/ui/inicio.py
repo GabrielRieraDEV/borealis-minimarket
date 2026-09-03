@@ -72,7 +72,7 @@ class PantallaInicio(QWidget):
     def _estado(self) -> None:
         vigente = servicio_tasa.tasa_del_dia(self.conexion)
         self.tasa.setText(
-            f"Tasa de hoy: {formato(vigente, 6)} Bs/USD"
+            f"Tasa de hoy: {formato(vigente, 2)} Bs/USD"
             if vigente is not None
             else "Sin tasa del dia. No se puede abrir la caja ni vender (RN-04)."
         )

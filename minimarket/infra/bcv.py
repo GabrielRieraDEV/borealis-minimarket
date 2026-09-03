@@ -22,11 +22,22 @@ _bitacora = logging.getLogger(__name__)
 
 
 def consultar(url: str = "", timeout: float = TIMEOUT_SEGUNDOS) -> Decimal | None:
-    """Devuelve la tasa publicada, o None si no se pudo obtener."""
+    """Devuelve la tasa publicada, o None si no se pudo obtener.
+
+    `verify=False` a proposito: el certificado de bcv.org.ve esta firmado por
+    una autoridad que Windows y Python no reconocen, y con la verificacion
+    puesta la consulta falla siempre. Lo que viaja es un numero publico que el
+    administrador ve en pantalla antes de guardarlo; no hay credenciales ni
+    datos del negocio de por medio.
+    """
     try:
         import requests  # import diferido: sin red, la app no lo necesita
+        import urllib3
 
-        respuesta = requests.get(url or URL_POR_DEFECTO, timeout=timeout)
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        respuesta = requests.get(
+            url or URL_POR_DEFECTO, timeout=timeout, verify=False
+        )
         respuesta.raise_for_status()
         return _extraer(respuesta.text)
     except Exception as error:  # red, DNS, certificado, HTML inesperado

@@ -191,7 +191,7 @@ class VentanaPrincipal(QMainWindow):
             pantalla.refrescar()
         vigente = servicio_tasa.tasa_del_dia(self.conexion)
         self.statusBar().showMessage(
-            f"{self.usuario.nombre} · Tasa de hoy: {formato(vigente, 6)} Bs/USD"
+            f"{self.usuario.nombre} · Tasa de hoy: {formato(vigente, 2)} Bs/USD"
             if vigente is not None
             else f"{self.usuario.nombre} · Sin tasa del dia. Cargala antes de "
             "abrir la caja."

@@ -412,6 +412,17 @@ Resueltas en la Fase 6:
   entera. `herramientas/capturas.py` hace lo mismo con la ventana entera y
   guarda las imágenes del manual.
 
+- **`infra/bcv.py` consulta con `verify=False`**: el certificado de
+  bcv.org.ve está firmado por una autoridad que Windows y Python no reconocen,
+  y con la verificación puesta la consulta fallaba siempre con
+  `CERTIFICATE_VERIFY_FAILED` (probado el 3 de septiembre de 2026; con la
+  verificación apagada trajo 804,8109). Lo que viaja es un número público que
+  el administrador ve antes de guardar; no hay credenciales de por medio.
+- **La tasa se muestra con dos decimales** en la barra de estado, el inicio y
+  el punto de venta, y con cuatro en la ventana de la tasa, que es como la
+  publica el BCV. Se sigue guardando con seis (principio de precisión).
+  Mostrar «210.500000» en la barra era ruido.
+
 Pendientes:
 
 - **El `.iss` no está compilado ni probado**: hace falta Inno Setup 6.3 en el

@@ -66,7 +66,7 @@ class AsistentePrimerArranque(QDialog):
         self.logo = QLineEdit()
         self.respaldo = QLineEdit()
         self.tasa = QLineEdit()
-        self.tasa.setPlaceholderText("Bolivares por dolar, por ejemplo 210,50")
+        self.tasa.setPlaceholderText("Bolivares por dolar, por ejemplo 804,81")
 
         disposicion = QVBoxLayout(self)
         disposicion.addWidget(
