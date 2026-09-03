@@ -27,9 +27,10 @@ from minimarket.servicios import inventario as servicio_inventario
 from minimarket.servicios import perdidas as servicio_perdidas
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import formato
+from minimarket.ui.estilo import ESTILO_BIEN, ESTILO_MAL
 
-VERDE = "color: #1c6b2f;"
-ROJO = "color: #a11b1b;"
+VERDE = ESTILO_BIEN
+ROJO = ESTILO_MAL
 FILAS_VISIBLES = 8
 
 

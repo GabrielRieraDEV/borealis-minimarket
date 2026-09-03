@@ -7,6 +7,8 @@ servicio no repita (RF-58).
 
 import sqlite3
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -26,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from minimarket.dominio.usuario import NOMBRE_ROL, ROLES, Usuario
+from minimarket.infra import rutas
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import usuarios as servicio_usuarios
 from minimarket.ui.comunes import avisar, confirmar
@@ -47,6 +51,7 @@ class DialogoIngreso(QDialog):
         self.nombre = QLineEdit()
         self.nombre.setPlaceholderText("Nombre de usuario")
         self.clave = QLineEdit()
+        self.clave.setPlaceholderText("Clave")
         self.clave.setEchoMode(QLineEdit.Password)
         # Enter en cualquiera de los dos campos confirma: es el gesto de todos
         # los dias y no tiene por que pedir un clic.
@@ -57,17 +62,46 @@ class DialogoIngreso(QDialog):
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
         )
         botones.button(QDialogButtonBox.Ok).setText("Entrar")
+        botones.button(QDialogButtonBox.Ok).setDefault(True)
         botones.button(QDialogButtonBox.Cancel).setText("Salir")
         botones.accepted.connect(self.entrar)
         botones.rejected.connect(self.reject)
 
-        formulario = QFormLayout()
-        formulario.addRow("Usuario:", self.nombre)
-        formulario.addRow("Clave:", self.clave)
+        # El logotipo arriba, los campos en una tarjeta. Es la primera pantalla
+        # que ve el cliente y la unica que ve el que no tiene clave.
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
+        imagen = QPixmap(str(rutas.logo()))
+        if not imagen.isNull():
+            logo.setPixmap(
+                imagen.scaledToHeight(110, Qt.SmoothTransformation)
+            )
+        titulo = QLabel("Ingreso al sistema")
+        titulo.setObjectName("tituloIngreso")
+        titulo.setAlignment(Qt.AlignCenter)
+        subtitulo = QLabel("Escribi tu usuario y tu clave, y Enter.")
+        subtitulo.setObjectName("subtituloIngreso")
+        subtitulo.setAlignment(Qt.AlignCenter)
+
+        tarjeta = QFrame()
+        tarjeta.setObjectName("tarjetaIngreso")
+        adentro = QVBoxLayout(tarjeta)
+        adentro.setContentsMargins(28, 18, 28, 16)
+        adentro.setSpacing(8)
+        adentro.addWidget(titulo)
+        adentro.addWidget(subtitulo)
+        adentro.addSpacing(6)
+        adentro.addWidget(self.nombre)
+        adentro.addWidget(self.clave)
+        adentro.addSpacing(6)
+        adentro.addWidget(botones)
 
         disposicion = QVBoxLayout(self)
-        disposicion.addLayout(formulario)
-        disposicion.addWidget(botones)
+        disposicion.setContentsMargins(36, 16, 36, 20)
+        disposicion.setSpacing(12)
+        disposicion.addWidget(logo)
+        disposicion.addWidget(tarjeta)
+        self.setFixedWidth(420)
         self.nombre.setFocus()
 
     def entrar(self) -> None:

@@ -13,6 +13,8 @@ que los números que se ven acá no son los del negocio.
 
 ### Entrar al sistema
 
+![Ingreso](capturas/ingreso.png)
+
 Al abrir el programa se pide usuario y clave. Hay dos perfiles:
 
 | Perfil | Qué puede hacer |
@@ -95,7 +97,9 @@ barras y el producto se agrega solo.
 - **Quitar un renglón:** se selecciona y `Supr`.
 - **Cancelar toda la venta:** `Esc`.
 
-El total en dólares y en bolívares se actualiza en cada tecla.
+El panel verde muestra el total a pagar en bolívares —lo que el cliente ve
+desde el otro lado del mostrador— y debajo su equivalente en dólares. Se
+actualiza en cada tecla.
 
 ### Cliente con datos fiscales
 
@@ -103,6 +107,8 @@ El total en dólares y en bolívares se actualiza en cada tecla.
 la venta sale como consumidor final y no hay que tocar nada.
 
 ### Cobrar
+
+![Cobro](capturas/cobro.png)
 
 `F12` abre el cobro:
 

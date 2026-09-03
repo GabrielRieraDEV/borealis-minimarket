@@ -3,12 +3,14 @@
     python -m herramientas.demostracion
     python -m herramientas.capturas
 
-Arma cada pantalla sobre la base de demostracion y la guarda en
-`docs/capturas/`. Se hace por programa y no a mano para que las imagenes del
-manual se puedan rehacer cuando la interfaz cambie, en vez de envejecer.
+Arma la ventana principal sobre la base de demostracion —con menu, pestanas
+y barra de estado, tal como la ve el usuario— y guarda una imagen por pestana
+en `docs/capturas/`, mas el ingreso y el cobro. Se hace por programa y no a
+mano para que las imagenes del manual se puedan rehacer cuando la interfaz
+cambie, en vez de envejecer.
 
-`QWidget.grab()` dibuja el widget en una imagen sin necesidad de mostrarlo, asi
-que no hay ventanas parpadeando ni un orden de clics que respetar.
+`QWidget.grab()` dibuja el widget en una imagen sin necesidad de mostrarlo,
+asi que no hay ventanas parpadeando ni un orden de clics que respetar.
 """
 
 import sys
@@ -19,19 +21,28 @@ from PySide6.QtWidgets import QApplication
 from minimarket.datos.conexion import abrir
 
 DESTINO = Path("docs/capturas")
-TAMANO = (1060, 660)
+TAMANO = (1280, 720)  # la resolucion mas chica que se ve en un equipo de caja
+
+# (archivo, titulo de la pestana). El titulo es el que arma VentanaPrincipal.
+PESTANAS = [
+    ("inicio", "&Inicio"),
+    ("venta", "&Venta"),
+    ("productos", "&Productos"),
+    ("compras", "Co&mpras"),
+    ("existencias", "&Existencias"),
+    ("perdidas", "&Perdidas"),
+    ("reportes", "&Reportes"),
+]
 
 
 def main() -> int:
     from minimarket.infra import rutas
     from minimarket.servicios import iniciar_sesion
     from minimarket.servicios import usuarios as servicio_usuarios
-    from minimarket.ui.compras import PantallaCompras
-    from minimarket.ui.inicio import PantallaInicio
-    from minimarket.ui.inventario import PantallaExistencias
-    from minimarket.ui.perdidas import PantallaPerdidas
-    from minimarket.ui.reportes import PantallaReportes
-    from minimarket.ui.venta import PantallaVenta
+    from minimarket.ui import estilo
+    from minimarket.ui.principal import VentanaPrincipal
+    from minimarket.ui.usuarios import DialogoIngreso
+    from minimarket.ui.venta import DialogoCobro
 
     base = (
         Path(sys.argv[1])
@@ -43,32 +54,44 @@ def main() -> int:
         print("Corre primero: python -m herramientas.demostracion")
         return 1
 
-    aplicacion = QApplication(sys.argv)  # noqa: F841  (lo pide Qt para dibujar)
+    aplicacion = QApplication(sys.argv)
+    estilo.aplicar(aplicacion)
     conexion = abrir(base)
-    iniciar_sesion(servicio_usuarios.obtener(conexion, 1))
-
+    administrador = servicio_usuarios.obtener(conexion, 1)
+    iniciar_sesion(administrador)
     DESTINO.mkdir(parents=True, exist_ok=True)
-    pantallas = [
-        ("inicio", PantallaInicio),
-        ("venta", PantallaVenta),
-        ("compras", PantallaCompras),
-        ("existencias", PantallaExistencias),
-        ("perdidas", PantallaPerdidas),
-        ("reportes", PantallaReportes),
-    ]
-    for nombre, clase in pantallas:
-        pantalla = clase(conexion)
-        pantalla.resize(*TAMANO)
-        pantalla.refrescar()
-        if nombre == "venta":
+
+    ingreso = DialogoIngreso(conexion)
+    ingreso.nombre.setText("admin")
+    _guardar(ingreso, "ingreso")
+
+    ventana = VentanaPrincipal(conexion, administrador)
+    ventana.resize(*TAMANO)
+    indices = {
+        ventana.pestanas.tabText(i).split(" (")[0]: i
+        for i in range(ventana.pestanas.count())
+    }
+    for archivo, titulo in PESTANAS:
+        ventana.pestanas.setCurrentIndex(indices[titulo])
+        pantalla = ventana.pestanas.currentWidget()
+        if archivo == "venta":
             _venta_en_curso(pantalla)
-        if nombre == "reportes":
+        if archivo == "reportes":
             pantalla.generar()  # la pantalla abre vacia hasta que se pide uno
-        archivo = DESTINO / f"{nombre}.png"
-        pantalla.grab().save(str(archivo))
-        print(f"  {archivo}")
+        _guardar(ventana, archivo)
+
+    venta = ventana.pestanas.widget(indices["&Venta"])
+    cobro = DialogoCobro(venta._venta_en_curso())
+    _guardar(cobro, "cobro")
+
     conexion.close()
     return 0
+
+
+def _guardar(widget, nombre: str) -> None:
+    archivo = DESTINO / f"{nombre}.png"
+    widget.grab().save(str(archivo))
+    print(f"  {archivo}")
 
 
 def _venta_en_curso(pantalla) -> None:

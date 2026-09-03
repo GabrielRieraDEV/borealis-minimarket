@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-283 pruebas.
+288 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -394,6 +394,23 @@ Resueltas en la Fase 6:
   y `ui/principal.main` lo pone en `QApplication.setWindowIcon` porque Qt no
   hereda el icono del ejecutable. Si cambia el logo, se corre el script y
   se reempaqueta; el `.ico` no se edita a mano.
+
+- **Identidad visual en un solo archivo**: `ui/estilo.py` es una hoja QSS con
+  la paleta del logotipo (verde de la cinta, crema del sello, dorado de las
+  letras) sobre el estilo Fusion, porque el nativo de Windows ignora media
+  hoja. Ninguna pantalla trae colores propios: `inicio.py` usa `ESTILO_BIEN`
+  y `ESTILO_MAL` de ahí. Lo que necesita trato distinto lleva
+  `setObjectName` y se selecciona por `#nombre` (el campo del lector, el
+  panel del total, el botón principal del cobro). Fuentes: Segoe UI y
+  Bahnschrift para los totales, que Windows 10 trae; no se empaqueta ninguna.
+- **El total del punto de venta va en bolívares grande y dólares chico**: es
+  lo que el cliente paga y mira desde el otro lado del mostrador.
+- **Prueba de humo de la interfaz**: `tests/test_interfaz.py` arma la ventana
+  principal con todas las pestañas, los diálogos sueltos y una venta desde el
+  lector sobre la base de demostración, en `QT_QPA_PLATFORM=offscreen`. Es lo
+  que se rompe cuando se renombra un servicio y ninguna prueba de dominio se
+  entera. `herramientas/capturas.py` hace lo mismo con la ventana entera y
+  guarda las imágenes del manual.
 
 Pendientes:
 

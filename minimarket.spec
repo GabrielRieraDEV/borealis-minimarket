@@ -26,6 +26,7 @@ from PyInstaller.utils.hooks import collect_data_files
 datos = [
     ("minimarket/datos/esquema.sql", "minimarket/datos"),
     ("recursos/minimarket.ico", "recursos"),
+    ("recursos/logo.png", "recursos"),
     *collect_data_files("escpos"),
     *collect_data_files("reportlab"),
 ]

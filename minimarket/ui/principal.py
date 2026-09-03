@@ -46,6 +46,7 @@ from minimarket.servicios import catalogo as servicio_catalogo
 from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.servicios import usuarios as servicio_usuarios
+from minimarket.ui import estilo
 from minimarket.ui.asistente import AsistentePrimerArranque
 from minimarket.ui.categorias import PantallaCategorias
 from minimarket.ui.comunes import avisar, detallar, formato
@@ -214,6 +215,7 @@ def main(conexion: sqlite3.Connection) -> int:
     Quien la abre es `minimarket.__main__`: la interfaz no habla con `datos/`.
     """
     aplicacion = QApplication(sys.argv)
+    estilo.aplicar(aplicacion)
     # El icono de la aplicacion: lo heredan todas las ventanas y dialogos.
     # Sin esto la barra de titulo muestra el generico de Qt, aunque el .exe
     # lo tenga incrustado.

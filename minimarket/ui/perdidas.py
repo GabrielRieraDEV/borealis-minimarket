@@ -379,5 +379,9 @@ def _tabla(columnas: list[str]) -> QTableWidget:
     tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
     tabla.setSelectionMode(QAbstractItemView.SingleSelection)
     tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+    # Las columnas se ajustan al texto y solo la del producto se estira: una
+    # fecha de diez caracteres no tiene por que llevarse media pantalla.
+    encabezado = tabla.horizontalHeader()
+    encabezado.setSectionResizeMode(QHeaderView.ResizeToContents)
+    encabezado.setSectionResizeMode(columnas.index("Producto"), QHeaderView.Stretch)
     return tabla

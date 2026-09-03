@@ -13,13 +13,14 @@ import sqlite3
 from decimal import Decimal
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -60,7 +61,9 @@ class PantallaVenta(QWidget):
         self.ultima_venta_id: int | None = None
 
         self.estado = QLabel()
+        self.estado.setObjectName("estadoCaja")
         self.codigo = QLineEdit()
+        self.codigo.setObjectName("codigo")  # lo agranda `ui/estilo.py`
         self.codigo.setPlaceholderText(
             "Codigo de barras o nombre  —  3*codigo para varias unidades"
         )
@@ -76,15 +79,22 @@ class PantallaVenta(QWidget):
 
         self.desglose = QLabel()
         self.cliente_visible = QLabel()
+        # El panel verde con el total: bolivares grande, porque es lo que el
+        # cliente paga y mira desde el otro lado del mostrador; dolares chico.
         self.total_usd = QLabel()
+        self.total_usd.setObjectName("totalUsd")
         self.total_bs = QLabel()
-        grande = QFont()
-        grande.setPointSize(20)
-        grande.setBold(True)
-        self.total_usd.setFont(grande)
-        self.total_bs.setFont(grande)
-        self.total_usd.setAlignment(Qt.AlignRight)
-        self.total_bs.setAlignment(Qt.AlignRight)
+        self.total_bs.setObjectName("totalBs")
+        etiqueta = QLabel("TOTAL A PAGAR")
+        etiqueta.setObjectName("etiquetaTotal")
+        panel = QFrame()
+        panel.setObjectName("panelTotales")
+        adentro = QVBoxLayout(panel)
+        adentro.setContentsMargins(20, 10, 20, 12)
+        adentro.setSpacing(0)
+        for parte in (etiqueta, self.total_bs, self.total_usd):
+            parte.setAlignment(Qt.AlignRight)
+            adentro.addWidget(parte)
 
         botones = QHBoxLayout()
         for texto, destino in (
@@ -102,17 +112,22 @@ class PantallaVenta(QWidget):
             botones.addWidget(boton)
         botones.addStretch()
 
-        totales = QVBoxLayout()
-        totales.addWidget(self.desglose)
-        totales.addWidget(self.total_usd)
-        totales.addWidget(self.total_bs)
+        # Abajo: a la izquierda el cliente y el desglose de IVA, a la derecha
+        # el panel del total.
+        pie = QHBoxLayout()
+        textos = QVBoxLayout()
+        textos.addStretch()
+        textos.addWidget(self.cliente_visible)
+        textos.addWidget(self.desglose)
+        pie.addLayout(textos, stretch=1)
+        pie.addWidget(panel)
 
         disposicion = QVBoxLayout(self)
+        disposicion.setSpacing(8)
         disposicion.addWidget(self.estado)
         disposicion.addWidget(self.codigo)
-        disposicion.addWidget(self.tabla)
-        disposicion.addWidget(self.cliente_visible)
-        disposicion.addLayout(totales)
+        disposicion.addWidget(self.tabla, stretch=1)
+        disposicion.addLayout(pie)
         disposicion.addLayout(botones)
 
         for tecla, destino in (
@@ -165,9 +180,9 @@ class PantallaVenta(QWidget):
             f"Base imponible {formato(venta.base_imponible_usd)} USD   ·   "
             f"IVA {formato(venta.iva_usd)} USD"
         )
-        self.total_usd.setText(f"TOTAL  {formato(venta.total_usd)} USD")
+        self.total_usd.setText(f"{formato(venta.total_usd)} USD")
         self.total_bs.setText(
-            f"TOTAL  {formato(venta.total_bs)} Bs"
+            f"Bs {formato(venta.total_bs)}"
             if self.tasa is not None
             else "Sin tasa del dia (F5)"
         )
@@ -390,16 +405,13 @@ class DialogoCobro(QDialog):
         self.venta = venta
         self.pagos = []
         self.setWindowTitle("Cobrar")
-        self.resize(620, 460)
+        self.resize(760, 460)
 
         total = QLabel(
-            f"TOTAL  {formato(venta.total_usd)} USD  ·  "
-            f"{formato(venta.total_bs)} Bs"
+            f"TOTAL  Bs {formato(venta.total_bs)}  ·  "
+            f"{formato(venta.total_usd)} USD"
         )
-        grande = QFont()
-        grande.setPointSize(16)
-        grande.setBold(True)
-        total.setFont(grande)
+        total.setObjectName("totalCobro")
 
         self.medio = QComboBox()
         self.medio.addItems(MEDIOS)
@@ -408,6 +420,7 @@ class DialogoCobro(QDialog):
         self.moneda.setCurrentText(BS)
         self.moneda.currentIndexChanged.connect(self._sugerir_monto)
         self.monto = QLineEdit()
+        self.monto.setMinimumWidth(130)
         self.monto.returnPressed.connect(self.agregar)
         self.referencia = QLineEdit()
         self.referencia.setPlaceholderText("Referencia (opcional)")
@@ -419,7 +432,7 @@ class DialogoCobro(QDialog):
         self.tabla.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
         self.saldo = QLabel()
-        self.saldo.setFont(grande)
+        self.saldo.setObjectName("saldoCobro")
 
         agregar = QPushButton("&Agregar pago (Enter)")
         agregar.clicked.connect(self.agregar)
@@ -440,6 +453,11 @@ class DialogoCobro(QDialog):
         )
         confirmar_boton = botones.button(QDialogButtonBox.Save)
         confirmar_boton.setText("Confirmar cobro (F12)")
+        # Verde de accion principal sin ser `default`. El nombre llega despues
+        # de que QDialogButtonBox pulio el boton, asi que se repule.
+        confirmar_boton.setObjectName("botonPrincipal")
+        confirmar_boton.style().unpolish(confirmar_boton)
+        confirmar_boton.style().polish(confirmar_boton)
         # Enter en el monto agrega el pago; confirmar es F12 y solo F12.
         confirmar_boton.setDefault(False)
         confirmar_boton.setAutoDefault(False)
