@@ -37,6 +37,7 @@ from minimarket.infra import rutas
 from minimarket.servicios import caja as servicio_caja
 from minimarket.servicios import catalogo as servicio_catalogo
 from minimarket.servicios import compras as servicio_compras
+from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import gastos as servicio_gastos
 from minimarket.servicios import perdidas as servicio_perdidas
 from minimarket.servicios import tasa as servicio_tasa
@@ -125,12 +126,20 @@ def construir(destino: Path) -> Path:
 
 
 def _usuarios(conexion) -> None:
-    """El admin semilla estrena clave y se le suma una cajera para practicar."""
+    """Lo que dejaria el asistente de primer arranque: clave y datos del negocio."""
     servicio_usuarios.establecer_clave_inicial(conexion, CLAVE_ADMIN)
     servicio_usuarios.crear(
         conexion,
         Usuario(usuario="maria", nombre="Maria Rodriguez", rol=CAJERO),
         CLAVE_CAJERO,
+    )
+    servicio_configuracion.guardar(
+        conexion,
+        {
+            "negocio.nombre": "Provisiones Jireh C.A.",
+            "negocio.rif": "J-508499557",
+            "negocio.logo": str(Path("recursos/logo.png").resolve()),
+        },
     )
 
 

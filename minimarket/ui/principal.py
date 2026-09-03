@@ -18,7 +18,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -40,7 +40,7 @@ from minimarket.dominio.usuario import (
     VER_EXISTENCIAS,
     Usuario,
 )
-from minimarket.infra import bitacora
+from minimarket.infra import bitacora, rutas
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo as servicio_catalogo
 from minimarket.servicios import configuracion as servicio_configuracion
@@ -214,6 +214,10 @@ def main(conexion: sqlite3.Connection) -> int:
     Quien la abre es `minimarket.__main__`: la interfaz no habla con `datos/`.
     """
     aplicacion = QApplication(sys.argv)
+    # El icono de la aplicacion: lo heredan todas las ventanas y dialogos.
+    # Sin esto la barra de titulo muestra el generico de Qt, aunque el .exe
+    # lo tenga incrustado.
+    aplicacion.setWindowIcon(QIcon(str(rutas.icono())))
     usuario = ingresar(conexion)
     if usuario is None:
         return 0

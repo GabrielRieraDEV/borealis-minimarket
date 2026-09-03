@@ -9,6 +9,7 @@ demostracion trabajan sin tocar la real.
 """
 
 import os
+import sys
 from pathlib import Path
 
 CARPETA = "Minimarket"
@@ -29,3 +30,13 @@ def base_de_datos() -> Path:
 def bitacora() -> Path:
     """RNF-13. El archivo de errores, al lado de la base."""
     return base_de_datos().with_name(BITACORA)
+
+
+def icono() -> Path:
+    """`recursos/minimarket.ico`, este o no empaquetada la aplicacion.
+
+    PyInstaller descomprime los datos en `sys._MEIPASS`; desde el codigo fuente
+    la carpeta es la raiz del repositorio, dos niveles arriba de este archivo.
+    """
+    raiz = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return raiz / "recursos" / "minimarket.ico"

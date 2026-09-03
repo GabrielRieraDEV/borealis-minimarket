@@ -29,6 +29,8 @@ OutputBaseFilename=minimarket-instalador
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\recursos\minimarket.ico
+UninstallDisplayIcon={app}\{#Ejecutable}
 ; Program Files necesita permisos de administrador. Es la unica vez que se
 ; piden: la aplicacion despues corre como usuario comun.
 PrivilegesRequired=admin

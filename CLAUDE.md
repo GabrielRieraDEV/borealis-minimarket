@@ -387,10 +387,16 @@ Resueltas en la Fase 6:
   3.000 productos con nombres inventados para medir tiempos y para capacitar
   hace falta lo contrario, un puñado de productos que el cajero reconozca.
 
+- **Icono y logotipo**: `recursos/logo.png` es el del cliente (Provisiones
+  Jireh C.A.). `herramientas/icono.py` lo recorta y genera
+  `recursos/minimarket.ico`, que va en el `.exe`, en el instalador y como dato
+  del paquete; `infra/rutas.icono` lo encuentra empaquetado o desde el código,
+  y `ui/principal.main` lo pone en `QApplication.setWindowIcon` porque Qt no
+  hereda el icono del ejecutable. Si cambia el logo, se corre el script y
+  se reempaqueta; el `.ico` no se edita a mano.
+
 Pendientes:
 
-- **Icono de la aplicación**: no hay. Cuando el cliente mande el suyo va como
-  `recursos/minimarket.ico` y se nombra en `icon=` del `.spec` y en el `.iss`.
 - **El `.iss` no está compilado ni probado**: hace falta Inno Setup 6.3 en el
   equipo que arma la entrega. El `.spec` sí: `dist/Minimarket/Minimarket.exe`
   arranca, crea la base y escribe la bitácora.

@@ -26,7 +26,7 @@ from minimarket.infra import bitacora
 # Mas de esto no entra legible ni en horizontal.
 COLUMNAS_APAISADO = 6
 
-ALTO_LOGO = 15 * mm  # el ancho sale de la proporcion de la imagen
+ALTO_LOGO = 25 * mm  # el ancho sale de la proporcion de la imagen
 
 _GRIS = colors.HexColor("#e8e8e8")
 _LINEA = colors.HexColor("#999999")

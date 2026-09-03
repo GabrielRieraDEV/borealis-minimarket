@@ -16,14 +16,16 @@ Los tres recursos que no se detectan solos:
   ejecucion para saber que sabe hacer cada impresora.
 - Las fuentes Type 1 de reportlab, que viven como datos del paquete.
 
-No hay icono todavia: cuando el cliente mande el suyo, va como `recursos/
-minimarket.ico` y se nombra en `icon=` aca y en el .iss.
+`recursos/minimarket.ico` lo genera `herramientas/icono.py` a partir de
+`recursos/logo.png`; va en el .exe (`icon=`), en el instalador y como dato,
+porque la ventana lo carga en tiempo de ejecucion.
 """
 
 from PyInstaller.utils.hooks import collect_data_files
 
 datos = [
     ("minimarket/datos/esquema.sql", "minimarket/datos"),
+    ("recursos/minimarket.ico", "recursos"),
     *collect_data_files("escpos"),
     *collect_data_files("reportlab"),
 ]
@@ -63,6 +65,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,  # es una aplicacion de ventana: sin consola detras
+    icon="recursos/minimarket.ico",
 )
 
 coleccion = COLLECT(

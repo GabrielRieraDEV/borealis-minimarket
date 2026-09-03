@@ -76,6 +76,10 @@ ISCC.exe instalador\minimarket.iss
 El primer comando deja `dist\Minimarket\` (modo onedir) y el segundo
 `instalador\salida\minimarket-instalador.exe`. Inno Setup 6.3 o superior.
 
+El icono sale de `recursos/logo.png`; si cambia el logotipo,
+`python -m herramientas.icono` regenera `recursos/minimarket.ico` antes de
+empaquetar.
+
 ## Estructura
 
 ```
@@ -84,6 +88,7 @@ minimarket/datos/       esquema SQLite y repositorios con SQL a mano
 minimarket/servicios/   casos de uso transaccionales
 minimarket/ui/          ventanas PySide6
 minimarket/infra/       impresora, tasa BCV, respaldo, bitácora, PDF, rutas
+recursos/               logotipo del cliente e icono generado
 herramientas/           base de demostración y capturas del manual
 tests/                  pruebas pytest
 docs/                   requisitos, reglas de negocio, modelo de datos, manual
