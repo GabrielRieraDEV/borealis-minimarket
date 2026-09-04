@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from minimarket.dominio.compra import ANULADA, Compra, LineaCompra, Proveedor
 from minimarket.servicios import ErrorServicio
-from minimarket.servicios import compras, usuario_actual
+from minimarket.servicios import catalogo, compras, usuario_actual
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import (
     ErrorDeCampo,

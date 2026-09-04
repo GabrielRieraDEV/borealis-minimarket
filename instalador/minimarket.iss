@@ -12,7 +12,7 @@
 ; datos por delante.
 
 #define Nombre "Minimarket"
-#define Version "1.0.0"
+#define Version "1.0.1"
 #define Empresa "Borealis Software Solutions"
 #define Ejecutable "Minimarket.exe"
 

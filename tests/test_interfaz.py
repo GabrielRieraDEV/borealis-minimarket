@@ -127,3 +127,54 @@ def test_el_ingreso_rechaza_la_clave_mala_y_acepta_la_buena(
     dialogo.clave.setText(demostracion.CLAVE_ADMIN)
     dialogo.entrar()
     assert dialogo.usuario is not None and dialogo.usuario.usuario == "admin"
+
+
+def test_los_dialogos_de_carga_registran_de_verdad(aplicacion, base_demo, monkeypatch):
+    """Los caminos que el cliente recorre y que armar la pantalla no ejercita.
+
+    El primer dia en produccion revento `agregar_linea` de compras con un
+    `NameError`: la pantalla armaba bien y el import faltante solo se usaba
+    al agregar. Aca cada dialogo de carga se llena y se confirma.
+    """
+    from minimarket.datos.repositorios import producto as repo_producto
+    from minimarket.servicios import inventario as servicio_inventario
+    from minimarket.ui import compras as ui_compras
+    from minimarket.ui import inventario as ui_inventario
+    from minimarket.ui import perdidas as ui_perdidas
+
+    avisos = []
+    for modulo in (ui_compras, ui_inventario, ui_perdidas):
+        monkeypatch.setattr(modulo, "avisar", lambda *a: avisos.append(a[1]))
+    harina = repo_producto.por_codigo_barras(base_demo, "7591001000018")
+    antes = servicio_inventario.existencia(base_demo, harina.id)
+
+    # Compra: una linea agregada desde los campos, como con el teclado.
+    compra = ui_compras.DialogoCompra(base_demo, None)
+    compra.producto.setCurrentIndex(compra.producto.findData(harina.id))
+    compra.presentaciones.setText("2")
+    compra.unidades.setText("12")
+    compra.costo.setText("10,80")
+    compra.agregar_linea()
+    assert compra.tabla.rowCount() == 1
+    assert compra.tabla.item(0, 0).text() == harina.nombre
+    compra.confirmar()
+    assert servicio_inventario.existencia(base_demo, harina.id) == antes + 24
+
+    # Perdida.
+    perdida = ui_perdidas.DialogoPerdida(base_demo)
+    perdida.producto.setCurrentIndex(perdida.producto.findData(harina.id))
+    perdida.cantidad.setText("1")
+    perdida.guardar()
+    assert servicio_inventario.existencia(base_demo, harina.id) == antes + 23
+
+    # Ajuste por conteo fisico.
+    fila = next(
+        f for f in servicio_inventario.consultar(base_demo) if f.producto_id == harina.id
+    )
+    ajuste = ui_inventario.DialogoAjuste(base_demo, fila)
+    ajuste.contada.setText(str(fila.existencia - 3))
+    ajuste.motivo.setText("Conteo de prueba")
+    ajuste.guardar()
+    assert servicio_inventario.existencia(base_demo, harina.id) == antes + 20
+
+    assert avisos == [], avisos
