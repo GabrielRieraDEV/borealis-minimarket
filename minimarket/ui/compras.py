@@ -38,14 +38,16 @@ from minimarket.ui.comunes import (
 )
 
 COLUMNAS = ["Fecha", "Documento", "Proveedor", "Total USD", "Saldo USD", "Estado"]
+# Los mismos nombres que los campos de carga, para que lo que se escribe y lo
+# que aparece en la tabla se llamen igual.
 COLUMNAS_LINEA = [
     "Producto",
-    "Present.",
-    "Unid. x present.",
-    "Costo present. USD",
-    "Vencimiento",
+    "Bultos",
+    "Unid. por bulto",
+    "Costo del bulto USD",
+    "Vence",
     "Unidades",
-    "Costo unit. USD",
+    "Costo por unidad USD",
     "Total USD",
 ]
 
@@ -216,7 +218,9 @@ class DialogoCompra(QDialog):
         self.tabla.setHorizontalHeaderLabels(COLUMNAS_LINEA)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        encabezado = self.tabla.horizontalHeader()
+        encabezado.setSectionResizeMode(QHeaderView.ResizeToContents)
+        encabezado.setSectionResizeMode(0, QHeaderView.Stretch)
 
         self.total = QLabel()
 
@@ -255,17 +259,23 @@ class DialogoCompra(QDialog):
     # adentro es varias veces mas codigo y peor con teclado. Si el minimarket
     # pide corregir una linea sin rehacerla, ahi si conviene.
     def _carga_de_lineas(self) -> QHBoxLayout:
+        """Cada campo con su etiqueta encima: dos «1» sueltos no se entienden."""
         self.producto = combo_productos(self.conexion)
+        self.producto.lineEdit().setPlaceholderText("Escribi parte del nombre")
         self.presentaciones = QLineEdit("1")
-        self.presentaciones.setMaximumWidth(70)
+        self.presentaciones.setMaximumWidth(90)
+        self.presentaciones.setToolTip("Cuantos bultos, cajas o paquetes entraron")
         self.unidades = QLineEdit("1")  # RN-06: por linea, no en la ficha
-        self.unidades.setMaximumWidth(70)
+        self.unidades.setMaximumWidth(90)
+        self.unidades.setToolTip("Cuantas unidades trae cada bulto")
         self.costo = QLineEdit()
-        self.costo.setMaximumWidth(110)
-        self.costo.setPlaceholderText("Costo present.")
+        self.costo.setMaximumWidth(120)
+        self.costo.setPlaceholderText("USD")
+        self.costo.setToolTip("Lo que costo el bulto entero, en dolares")
         self.vencimiento = QLineEdit()
-        self.vencimiento.setMaximumWidth(120)
-        self.vencimiento.setPlaceholderText("Vence AAAA-MM-DD")
+        self.vencimiento.setMaximumWidth(130)
+        self.vencimiento.setPlaceholderText("AAAA-MM-DD")
+        self.vencimiento.setToolTip("Solo si el producto maneja vencimiento")
 
         agregar = QPushButton("&Agregar (F9)")
         agregar.clicked.connect(self.agregar_linea)
@@ -275,16 +285,16 @@ class DialogoCompra(QDialog):
         QShortcut(QKeySequence(Qt.Key_Delete), self.tabla, self.quitar_linea)
 
         fila = QHBoxLayout()
-        fila.addWidget(self.producto, stretch=1)
-        for campo in (
-            self.presentaciones,
-            self.unidades,
-            self.costo,
-            self.vencimiento,
+        fila.addLayout(_etiquetado("Producto", self.producto), stretch=1)
+        for etiqueta, campo in (
+            ("Bultos", self.presentaciones),
+            ("Unid. por bulto", self.unidades),
+            ("Costo del bulto", self.costo),
+            ("Vence", self.vencimiento),
         ):
-            fila.addWidget(campo)
-        fila.addWidget(agregar)
-        fila.addWidget(quitar)
+            fila.addLayout(_etiquetado(etiqueta, campo))
+        fila.addWidget(agregar, alignment=Qt.AlignBottom)
+        fila.addWidget(quitar, alignment=Qt.AlignBottom)
         return fila
 
     def _cargar(self, compra: Compra) -> None:
@@ -595,3 +605,14 @@ class DialogoProveedor(QDialog):
             avisar(self, str(error))
             return
         self.accept()
+
+
+def _etiquetado(texto: str, campo: QWidget) -> QVBoxLayout:
+    """Una etiqueta chica encima del campo, para las filas de carga."""
+    columna = QVBoxLayout()
+    columna.setSpacing(2)
+    etiqueta = QLabel(texto)
+    etiqueta.setObjectName("etiquetaCampo")
+    columna.addWidget(etiqueta)
+    columna.addWidget(campo)
+    return columna

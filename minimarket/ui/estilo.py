@@ -191,6 +191,8 @@ QGroupBox::title {{
     padding: 0 5px;
 }}
 
+#etiquetaCampo {{ color: {TINTA_SUAVE}; font-size: 9pt; }}
+
 /* --- Punto de venta ---------------------------------------------------- */
 #codigo {{
     font-size: 15pt;

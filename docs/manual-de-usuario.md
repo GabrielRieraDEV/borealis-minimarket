@@ -156,12 +156,17 @@ Reportes → *Cierre de caja*.
 2. Elegí el **proveedor** (se dan de alta con `F10`), la fecha y el número de
    documento de la factura.
 3. Por cada producto, completá los campos de abajo y apretá **Agregar (F9)**:
-   - **Presentaciones**: cuántos bultos, cajas o paquetes entraron.
-   - **Unidades**: cuántas unidades trae cada bulto.
-   - **Costo present.**: en dólares, lo que costó el bulto entero.
-   - **Vence (AAAA-MM-DD)**: solo si el producto maneja vencimiento. Crea el lote.
+   - **Producto**: escribí parte del nombre y elegilo de la lista.
+   - **Bultos**: cuántas cajas, paquetes o bultos entraron.
+   - **Unid. por bulto**: cuántas unidades trae cada uno.
+   - **Costo del bulto**: en dólares, lo que costó el bulto entero.
+   - **Vence**: fecha `AAAA-MM-DD`, solo si el producto maneja vencimiento.
+     Crea el lote.
 
-   El costo por unidad se calcula solo; no hay que dividir a mano.
+   Ejemplo: 3 cajas de refresco de 12 botellas a 15 USD la caja → `3`, `12`,
+   `15`. El sistema calcula solo 36 unidades a 1,25 USD cada una. Si la
+   compra viene suelta (un jamón de 4,2 kg), va `1` bulto de `4.2` unidades.
+   No hay que dividir nada a mano.
 4. **Confirmar compra**. La mercadería entra al inventario y el costo queda
    registrado.
 
