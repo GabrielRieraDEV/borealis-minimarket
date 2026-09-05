@@ -189,3 +189,36 @@ def test_el_inicio_dice_si_los_margenes_cubren_los_gastos(aplicacion, base_demo)
     assert "margen bruto" in pantalla.equilibrio_margen.text()
     veredicto = pantalla.equilibrio_veredicto.text()
     assert "Al mismo ritmo" in veredicto and "USD" in veredicto
+
+
+def test_las_pantallas_nuevas_de_la_1_2_0(aplicacion, base_demo):
+    """Gastos con recurrentes, el dialogo del margen, ventas del dia y el cierre."""
+    from minimarket.servicios import caja as servicio_caja
+    from minimarket.ui.gastos import DialogoGastoRecurrente, PantallaGastos
+    from minimarket.ui.productos import DialogoMargenSugerido, PantallaProductos
+    from minimarket.ui.reportes import PantallaReportes
+    from minimarket.ui.venta import DialogoCierre
+
+    gastos = PantallaGastos(base_demo)
+    assert gastos.tabla_recurrentes.rowCount() == 2  # alquiler + punto (demo)
+    origenes = {gastos.tabla_mes.item(i, 3).text() for i in range(gastos.tabla_mes.rowCount())}
+    assert "fijo mensual" in origenes and "cargado" in origenes
+    assert DialogoGastoRecurrente(base_demo).windowTitle()
+
+    productos = PantallaProductos(base_demo)
+    encabezados = [productos.tabla.horizontalHeaderItem(i).text() for i in range(productos.tabla.columnCount())]
+    assert "Margen %" in encabezados
+    dialogo = DialogoMargenSugerido(base_demo)
+    assert "Margen minimo para no perder" in dialogo.explicacion.text()
+    assert dialogo.plan is not None and dialogo.margen.text()
+
+    reportes = PantallaReportes(base_demo)
+    reportes.tipo.setCurrentIndex(0)  # «Ventas del dia»
+    reportes.generar()
+    assert reportes.tabla.columnCount() == 3 and reportes.tabla.rowCount() > 0
+    assert "Cobrado" in reportes.resumen.text()
+
+    sesion = servicio_caja.sesion_abierta(base_demo)
+    cierre = DialogoCierre(base_demo, sesion.id)
+    assert cierre.vendido.rowCount() > 0
+    assert "Punto" in cierre.cobrado.text()

@@ -112,6 +112,59 @@ SUELDOS = "SUELDOS"
 OTROS = "OTROS"
 CATEGORIAS_GASTO = [ALQUILER, SERVICIOS, SUELDOS, OTROS]
 
+# `gasto_recurrente.tipo`
+FIJO = "FIJO"
+PORCENTAJE = "PORCENTAJE"
+
+
+@dataclass(frozen=True)
+class GastoRecurrente:
+    """Un gasto que se repite todos los meses sin volver a cargarlo (1.2.0).
+
+    FIJO: `monto_usd` por mes (alquiler, sueldos). PORCENTAJE: `porcentaje` de
+    lo cobrado en el mes por `medio` (o por todos si es None): la comision del
+    punto de venta. Vigente desde `desde_periodo` hasta `hasta_periodo`
+    inclusive; None es «sigue vigente».
+    """
+
+    categoria: str
+    descripcion: str
+    tipo: str
+    desde_periodo: str
+    usuario_id: int
+    monto_usd: Decimal = Decimal(0)
+    porcentaje: Decimal = Decimal(0)
+    medio: str | None = None
+    hasta_periodo: str | None = None
+    id: int | None = None
+
+    def vigente_en(self, periodo: str) -> bool:
+        return self.desde_periodo <= periodo and (
+            self.hasta_periodo is None or periodo <= self.hasta_periodo
+        )
+
+    def valuar(self, cobrado_por_medio: dict[str, Decimal]) -> Decimal:
+        """Cuanto pesa este gasto en un mes, dado lo cobrado en ese mes."""
+        if self.tipo == FIJO:
+            return self.monto_usd
+        base = (
+            sum(cobrado_por_medio.values(), Decimal(0))
+            if self.medio is None
+            else cobrado_por_medio.get(self.medio, Decimal(0))
+        )
+        return redondear(base * self.porcentaje / 100, 2)
+
+
+@dataclass(frozen=True)
+class RenglonGasto:
+    """Un gasto de un mes ya valuado, venga de donde venga, para la pantalla."""
+
+    periodo: str
+    categoria: str
+    descripcion: str
+    monto_usd: Decimal
+    origen: str  # "cargado" | "fijo mensual" | "3 % de lo cobrado por punto"
+
 
 @dataclass(frozen=True)
 class FilaPerdida:
@@ -232,6 +285,97 @@ class Equilibrio:
             self.resultado.gastos_usd / self.ingreso_proyectado_usd * 100,
             DECIMALES_PORCENTAJE,
         )
+
+
+@dataclass(frozen=True)
+class MargenSugerido:
+    """A que margen vender para que las ventas paguen los gastos y dejen ganancia.
+
+    Pedido del cliente (1.2.0): es un negocio nuevo y no sabe que margen poner.
+    Lo que el sistema SI puede calcular es el piso: con estas ventas y estos
+    gastos, debajo de tal margen se pierde plata. Y ese piso baja solo cuando
+    el volumen sube, que es lo que el cliente intuye («compro poco, margen
+    alto; cuando venda mas, bajo el margen»).
+
+    Lo que el sistema NO sabe es que la harina tiene que ir mas barata que la
+    mayonesa para competir. Eso lo sabe el dueno y ya tiene donde decirlo (el
+    margen objetivo por categoria y por producto). El sugerido se aplica como
+    piso a lo que este por debajo; lo que el dueno puso mas alto se respeta.
+
+    Todo sobre ventas sin IVA. `tasa_variable` es la fraccion de las ventas
+    que se van en gastos por porcentaje (comisiones), ya valuadas.
+    """
+
+    ventas_mes_usd: Decimal
+    gastos_fijos_usd: Decimal
+    tasa_variable: Decimal  # fraccion, 0.018 = 1,8 % de las ventas
+    ganancia_pct: Decimal  # sobre ventas, la que el dueno quiere
+    origen_ventas: str  # "real" | "proyectado" | "esperado"
+    dias_de_ventas: int = 0
+
+    def _margen_sobre_costo(self, sobre_ventas: Decimal) -> Decimal | None:
+        """RN-08 mide el margen sobre el costo; el piso sale sobre ventas.
+
+        Si de cada dolar vendido tiene que quedar `s` para gastos y ganancia,
+        el costo es (1 - s) y el margen sobre ese costo es s / (1 - s).
+        Con s >= 1 no hay margen que alcance: los gastos superan las ventas.
+        """
+        if sobre_ventas >= 1:
+            return None
+        return redondear(
+            sobre_ventas / (1 - sobre_ventas) * 100, DECIMALES_PORCENTAJE
+        )
+
+    def _sobre_ventas(self, ventas: Decimal, con_ganancia: bool) -> Decimal:
+        if ventas <= 0:
+            return Decimal(1)
+        fraccion = self.gastos_fijos_usd / ventas + self.tasa_variable
+        if con_ganancia:
+            fraccion += self.ganancia_pct / 100
+        return fraccion
+
+    @property
+    def piso_pct(self) -> Decimal | None:
+        """Debajo de esto se pierde plata, aunque se venda lo mismo."""
+        return self._margen_sobre_costo(
+            self._sobre_ventas(self.ventas_mes_usd, con_ganancia=False)
+        )
+
+    @property
+    def sugerido_pct(self) -> Decimal | None:
+        """El piso mas la ganancia que el dueno quiere."""
+        return self._margen_sobre_costo(
+            self._sobre_ventas(self.ventas_mes_usd, con_ganancia=True)
+        )
+
+    def sugerido_si_vendiera(self, ventas_mes_usd: Decimal) -> Decimal | None:
+        """El mismo sugerido con otro volumen: para mostrar que baja al vender mas."""
+        return self._margen_sobre_costo(
+            self._sobre_ventas(ventas_mes_usd, con_ganancia=True)
+        )
+
+
+@dataclass(frozen=True)
+class ProductoVendido:
+    """Una linea de la venta del dia: que se vendio y cuanto."""
+
+    producto_id: int
+    nombre: str
+    cantidad: Decimal
+    total_usd: Decimal
+
+
+@dataclass(frozen=True)
+class VentaDelDia:
+    """Pedido del cliente (1.2.0): «se vendieron tantas harinas y son 23 de
+    pago movil». Los productos y lo cobrado por cada medio, de un dia o de
+    una sesion de caja."""
+
+    titulo: str
+    productos: list[ProductoVendido]
+    por_medio: list[TotalPorMedio]
+    ventas: int
+    total_usd: Decimal
 
 
 # --- Libro de ventas (RF-52, RN-31) -----------------------------------------

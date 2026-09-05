@@ -234,27 +234,33 @@ pérdida por vencimiento, sin tener que cargar la cantidad a mano.
 
 ## 6. Consultar los reportes
 
-**`Ctrl+R` · solo administrador**
+**`Ctrl+R` · solo administrador (el cajero ve el cierre de su caja)**
 
 ![Reportes](capturas/reportes.png)
 
 1. Elegí el reporte de la lista.
-2. Ajustá **Desde** y **Hasta**.
+2. Ajustá **Desde** y **Hasta** (para «Ventas del día», solo la fecha).
 3. **Ver reporte**.
-4. **Exportar a PDF** guarda lo que se ve en pantalla, con el encabezado del
-   negocio.
+4. **Exportar a PDF** guarda lo que se ve en pantalla, con el encabezado y el
+   logo del negocio.
 
 | Reporte | Para qué sirve |
 |---------|----------------|
-| Ventas del período | Cuánto se vendió, por medio de pago y moneda. |
-| Inventario valorizado | Cuánta plata hay parada en mercadería. |
+| Ventas del día | Qué se vendió de cada producto y cuánto entró por cada medio: «tantas harinas, 23 USD por pago móvil». |
+| Ventas del período | Cuánto se cobró, por medio de pago y moneda. |
+| Cierre de caja | El arqueo de una sesión, con sus diferencias. |
 | Ganancia por producto | Qué deja cada producto. |
 | Ganancia por categoría | Lo mismo, agrupado. |
-| Cierre de caja | El arqueo de una sesión, con sus diferencias. |
-| Libro de ventas | Formato fiscal, para el contador. |
-| Pérdidas por motivo | Por dónde se está yendo la mercadería. |
+| Resultado del período | Ventas menos costo, pérdidas y gastos del mes: lo que quedó. |
+| Inventario valorizado | Cuánta plata hay parada en mercadería. |
 | Próximos a vencer | Lo que hay que sacar antes de perderlo. |
-| Ganancia real | Ventas menos costo, pérdidas y gastos del período. |
+| Pérdidas por motivo | Por dónde se está yendo la mercadería. |
+| Libro de ventas | Formato fiscal, para el contador. |
+
+El mismo resumen de «Ventas del día» aparece al **cerrar la caja**, en la
+pestaña **Qué se vendió**, para la sesión que se está cerrando.
+
+![Cierre de caja](capturas/cierre.png)
 
 ### Existencias
 
@@ -269,21 +275,87 @@ diferencia como un movimiento más y deja constancia de quién la hizo.
 
 **`Ctrl+G` · solo administrador**
 
-Alquiler, sueldos, luz, internet, todo lo que se paga aunque no se venda nada.
-Van **por mes**: el alquiler de septiembre es de septiembre aunque se pague en
-octubre. Se restan del resultado del mes entero; no se reparten entre
-productos.
+![Gastos](capturas/gastos.png)
 
-- **Registrar gasto (`Ins`)**: categoría, descripción, monto en USD y el mes al
-  que corresponde.
-- **Repetir los del mes anterior**: copia al mes actual todos los gastos del
-  mes pasado con el mismo monto. Es lo normal a principio de mes; después se
-  registra de nuevo el que haya cambiado. Solo funciona si el mes todavía no
-  tiene gastos, para no duplicar el alquiler.
+Todo lo que se paga aunque no se venda nada, y lo que se paga *por* vender.
+Hay dos bloques:
 
-Con los gastos cargados, la pantalla de inicio dice si las ventas del mes los
-están cubriendo, y el reporte de **Ganancia real** muestra el resultado al
-cerrar.
+**Gastos de todos los meses.** Se cargan una vez y rigen cada mes hasta que
+se den de baja. Son de dos tipos:
+
+- **Fijos**: un monto por mes. Alquiler, sueldos, internet, luz.
+- **Por porcentaje**: una parte de lo que se cobra. La comisión del punto de
+  venta (por ejemplo 3 % de lo cobrado por punto) o del pago móvil. El
+  sistema la calcula solo cada mes según lo que realmente se cobró por ese
+  medio.
+
+Para dar de baja uno (se mudaron, cambió el banco), se selecciona y **Dar de
+baja**: cuenta hasta el mes actual y deja de regir desde el siguiente. No se
+borra: los meses pasados lo siguen mostrando.
+
+**Lo que pesa en el mes.** Abajo se ve el mes completo: los gastos de todos
+los meses ya valuados, más los que se cargan sueltos con **Registrar un gasto
+de este mes** (una reparación, una multa: lo que no se repite).
+
+Los gastos van por mes: el alquiler de septiembre es de septiembre aunque se
+pague en octubre. Se restan enteros del resultado del mes; no se reparten
+entre productos.
+
+---
+
+## ¿A qué margen vender?
+
+**Inicio → «¿A qué margen vender?…», o Productos → el mismo botón · solo
+administrador**
+
+![Margen sugerido](capturas/margen.png)
+
+Para un negocio nuevo la pregunta es esa: ¿cuánto le cargo a la mercadería
+para pagar los gastos y ganar, sin quedar caro? El sistema la responde con
+una cuenta, no con una opinión:
+
+1. Toma lo que se vende por mes (los últimos 30 días; si el negocio es más
+   nuevo, proyecta los días que lleva; si todavía no vendió, usa las **ventas
+   esperadas** que se cargan en Configuración).
+2. Toma los gastos fijos del mes y las comisiones por porcentaje.
+3. Calcula el **margen mínimo para no perder** (el piso) y el **sugerido**,
+   que es el piso más la ganancia deseada (10 % de las ventas por defecto; se
+   cambia en Configuración).
+
+Los dos números son **sobre el costo**, igual que el margen objetivo de
+categorías y productos: un margen de 40 % significa que algo que costó 1,00
+se vende a 1,40 más IVA.
+
+### Por qué baja solo cuando venden más
+
+El alquiler es el mismo si venden 2.000 o 6.000 al mes. Con 2.000, cada
+dólar vendido tiene que aportar mucho para pagarlo; con 6.000, poco. Por eso
+el sistema muestra «con el doble de ventas bastaría X %»: a medida que el
+negocio crece, el margen necesario baja y el sistema lo va diciendo. Y cuando
+compran más cantidad y el proveedor les cobra menos, el precio baja solo con
+el mismo margen, porque el precio se calcula sobre el último costo.
+
+### Aplicarlo a todo lo que ya tienen
+
+El botón **Aplicar a lo que esté por debajo** sube al margen elegido toda
+categoría o producto que hoy tenga un margen objetivo menor, y recalcula los
+precios de todo el catálogo con el último costo de compra. **Lo que ya tenía
+un margen más alto no se toca**: si el dueño le puso 45 % a limpieza porque
+sabe que ahí se puede, eso queda. Antes de aplicar se ve la lista de precios
+que cambiarían, y el margen es editable.
+
+Lo que el sistema **no** sabe es qué producto tiene que ir más barato para
+competir con el negocio de la esquina. Eso lo sabe el dueño, y el lugar para
+decirlo es el margen objetivo de cada categoría (`F3`) o de cada producto
+(`F2`). El sugerido es el piso; de ahí para arriba, cada uno decide.
+
+### En Productos
+
+La columna **Margen %** muestra qué margen deja hoy el precio de cada
+producto con su último costo. **En rojo** los que están por debajo del piso:
+esos se venden a pérdida una vez pagados los gastos. **Recalcular todos los
+precios** vuelve a calcular todo el catálogo con los márgenes objetivo
+actuales, sin cambiar los márgenes.
 
 ---
 

@@ -1,9 +1,10 @@
 """Pantalla de productos y formulario de alta/edicion (RF-01 a RF-07)."""
 
 import sqlite3
+from decimal import Decimal
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -26,9 +27,12 @@ from PySide6.QtWidgets import (
 from minimarket.dominio.producto import Producto, precio_publico_bs
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo, tasa as servicio_tasa
+from minimarket.servicios import reportes as servicio_reportes
+from minimarket.ui.estilo import ROJO, VERDE_OSCURO
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
 
-COLUMNAS = ["Codigo", "Nombre", "Categoria", "IVA", "Precio USD", "Precio Bs", "Estado"]
+COLUMNAS = ["Codigo", "Nombre", "Categoria", "IVA", "Precio USD", "Precio Bs", "Margen %", "Estado"]
+COLUMNA_MARGEN = 6
 
 
 class PantallaProductos(QWidget):
@@ -61,11 +65,25 @@ class PantallaProductos(QWidget):
         boton_editar.clicked.connect(self.editar)
         boton_baja = QPushButton("Dar de &baja / reactivar (Supr)")
         boton_baja.clicked.connect(self.cambiar_estado)
+        boton_recalcular = QPushButton("&Recalcular todos los precios")
+        boton_recalcular.setToolTip(
+            "Vuelve a calcular el precio de todo el catalogo con el ultimo costo "
+            "de compra y el margen objetivo de cada producto o categoria."
+        )
+        boton_recalcular.clicked.connect(self.recalcular_todo)
+        boton_margen = QPushButton("¿A que &margen vender?…")
+        boton_margen.setToolTip(
+            "El margen minimo para que las ventas paguen los gastos y dejen "
+            "ganancia, y aplicarlo a todo lo que este por debajo."
+        )
+        boton_margen.clicked.connect(self.margen_sugerido)
 
         botones = QHBoxLayout()
         for boton in (boton_nuevo, boton_editar, boton_baja):
             botones.addWidget(boton)
         botones.addStretch()
+        botones.addWidget(boton_recalcular)
+        botones.addWidget(boton_margen)
 
         disposicion = QVBoxLayout(self)
         disposicion.addWidget(self.busqueda)
@@ -92,6 +110,7 @@ class PantallaProductos(QWidget):
         alicuotas = {a.id: a for a in catalogo.listar_alicuotas(self.conexion)}
         tasa = servicio_tasa.tasa_del_dia(self.conexion)
         multiplo = servicio_tasa.multiplo_redondeo(self.conexion)
+        margenes, piso = self._margenes()
 
         self.tabla.setRowCount(len(self.productos))
         for fila, producto in enumerate(self.productos):
@@ -101,6 +120,7 @@ class PantallaProductos(QWidget):
                 if tasa is not None
                 else "sin tasa"
             )
+            margen = margenes.get(producto.id) if margenes is not None else None
             celdas = [
                 producto.codigo_barras or "",
                 producto.nombre,
@@ -108,10 +128,49 @@ class PantallaProductos(QWidget):
                 alicuota.nombre if alicuota else "",
                 formato(producto.precio_venta_usd, 4),
                 bs,
+                formato(margen) if margen is not None else ("sin costo" if margenes is not None else ""),
                 "Activo" if producto.activo else "De baja",
             ]
             for columna, texto in enumerate(celdas):
-                self.tabla.setItem(fila, columna, QTableWidgetItem(texto))
+                celda = QTableWidgetItem(texto)
+                # Rojo si el precio de hoy no llega al margen que cubre los gastos.
+                if columna == COLUMNA_MARGEN and margen is not None and piso is not None:
+                    celda.setForeground(QBrush(QColor(ROJO if margen < piso else VERDE_OSCURO)))
+                self.tabla.setItem(fila, columna, celda)
+
+    def _margenes(self) -> tuple[dict | None, Decimal | None]:
+        """El margen actual de cada producto y el piso sugerido; None sin permiso."""
+        try:
+            margenes = catalogo.margenes_actuales(self.conexion)
+        except ErrorServicio:
+            return None, None
+        try:
+            sugerido = servicio_reportes.margen_sugerido(self.conexion)
+        except ErrorServicio:
+            sugerido = None
+        return margenes, sugerido.piso_pct if sugerido is not None else None
+
+    def recalcular_todo(self) -> None:
+        """RF-08 sobre todo el catalogo: vista previa, confirmacion, aplicar."""
+        try:
+            cambios = catalogo.previsualizar_recalculo_total(self.conexion)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        if not cambios:
+            avisar(
+                self,
+                "Todos los precios ya estan al dia con su margen objetivo y su "
+                "ultimo costo. Los productos sin costo de compra quedan fuera.",
+            )
+            return
+        if _confirmar_cambios(self, cambios, "con el margen objetivo de cada uno"):
+            catalogo.aplicar_recalculo(self.conexion, cambios)
+            self.refrescar()
+
+    def margen_sugerido(self) -> None:
+        if DialogoMargenSugerido(self.conexion, self).exec() == QDialog.Accepted:
+            self.refrescar()
 
     def seleccionado(self) -> Producto | None:
         fila = self.tabla.currentRow()
@@ -151,6 +210,176 @@ class PantallaProductos(QWidget):
         dialogo = DialogoProducto(self.conexion, producto, self)
         if dialogo.exec() == QDialog.Accepted:
             self.refrescar()
+
+
+def _confirmar_cambios(padre, cambios, motivo: str) -> bool:
+    muestra = "\n".join(
+        f"· {producto.nombre}: {formato(producto.precio_venta_usd, 4)} → "
+        f"{formato(nuevo, 4)} USD"
+        for producto, nuevo in cambios[:15]
+    )
+    if len(cambios) > 15:
+        muestra += f"\n… y {len(cambios) - 15} producto(s) mas."
+    return confirmar(
+        padre,
+        f"Se van a actualizar {len(cambios)} precio(s) {motivo}:\n\n{muestra}\n\n"
+        "¿Continuar?",
+    )
+
+
+class DialogoMargenSugerido(QDialog):
+    """¿A que margen vender? (1.2.0)
+
+    Muestra el piso (no perder) y el sugerido (con la ganancia deseada), el
+    volumen con que se calcularon y por que baja al vender mas. El margen es
+    editable antes de aplicar; lo que esta por encima no se toca.
+    """
+
+    def __init__(
+        self, conexion: sqlite3.Connection, padre: QWidget | None = None
+    ) -> None:
+        super().__init__(padre)
+        self.conexion = conexion
+        self.plan = None
+        self.setWindowTitle("¿A que margen vender?")
+        self.setMinimumWidth(640)
+
+        self.explicacion = QLabel()
+        self.explicacion.setWordWrap(True)
+        self.margen = QLineEdit()
+        self.margen.setMaximumWidth(120)
+        self.margen.editingFinished.connect(self.previsualizar)
+        self.detalle = QLabel()
+        self.detalle.setWordWrap(True)
+        self.detalle.setObjectName("subtituloIngreso")
+
+        botones = QDialogButtonBox(
+            QDialogButtonBox.Save | QDialogButtonBox.Cancel, parent=self
+        )
+        self.boton_aplicar = botones.button(QDialogButtonBox.Save)
+        self.boton_aplicar.setText("Aplicar a lo que este por debajo")
+        botones.button(QDialogButtonBox.Cancel).setText("Cerrar")
+        botones.accepted.connect(self.aplicar)
+        botones.rejected.connect(self.reject)
+
+        fila = QHBoxLayout()
+        fila.addWidget(QLabel("Margen a aplicar como piso (%):"))
+        fila.addWidget(self.margen)
+        fila.addStretch()
+
+        disposicion = QVBoxLayout(self)
+        disposicion.addWidget(self.explicacion)
+        disposicion.addLayout(fila)
+        disposicion.addWidget(self.detalle)
+        disposicion.addWidget(botones)
+        self._calcular()
+
+    def _calcular(self) -> None:
+        try:
+            sugerido = servicio_reportes.margen_sugerido(self.conexion)
+        except ErrorServicio as error:
+            self.explicacion.setText(str(error))
+            self.boton_aplicar.setEnabled(False)
+            return
+        self.explicacion.setText(texto_margen_sugerido(sugerido))
+        if sugerido is None or sugerido.sugerido_pct is None:
+            self.boton_aplicar.setEnabled(False)
+            return
+        self.margen.setText(str(sugerido.sugerido_pct))
+        self.previsualizar()
+
+    def previsualizar(self) -> None:
+        try:
+            margen = a_decimal(self.margen.text(), "el margen")
+            self.plan = catalogo.previsualizar_margen(self.conexion, margen)
+        except (ErrorDeCampo, ErrorServicio) as error:
+            self.detalle.setText(str(error))
+            self.boton_aplicar.setEnabled(False)
+            return
+        plan = self.plan
+        partes = []
+        if plan.categorias:
+            partes.append(
+                "Categorias que suben a ese margen: "
+                + ", ".join(f"{c.nombre} ({formato(m)} %)" for c, m in plan.categorias)
+                + "."
+            )
+        if plan.productos:
+            partes.append(f"Productos con margen propio que suben: {len(plan.productos)}.")
+        if not plan.categorias and not plan.productos:
+            partes.append("Ninguna categoria ni producto esta por debajo de ese margen.")
+        partes.append(f"Precios que cambiarian: {len(plan.cambios)}.")
+        if plan.sin_costo:
+            partes.append(
+                f"{plan.sin_costo} producto(s) sin compra registrada quedan fuera: "
+                "sin costo no hay precio que calcular."
+            )
+        self.detalle.setText(" ".join(partes))
+        self.boton_aplicar.setEnabled(bool(plan.categorias or plan.productos or plan.cambios))
+
+    def aplicar(self) -> None:
+        if self.plan is None:
+            return
+        if self.plan.cambios and not _confirmar_cambios(
+            self, self.plan.cambios, f"con un margen minimo de {formato(self.plan.margen_pct)} %"
+        ):
+            return
+        try:
+            cuantos = catalogo.aplicar_margen(self.conexion, self.plan)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        avisar(
+            self,
+            f"Listo: {len(self.plan.categorias)} categoria(s) y {len(self.plan.productos)} "
+            f"producto(s) subieron su margen a {formato(self.plan.margen_pct)} %, y se "
+            f"actualizaron {cuantos} precios.",
+            "Margen aplicado",
+        )
+        self.accept()
+
+
+def texto_margen_sugerido(sugerido) -> str:
+    """La explicacion en palabras del dueno, para el dialogo y para Inicio."""
+    if sugerido is None:
+        return (
+            "Todavia no se puede sugerir un margen: no hay ventas y no se "
+            "cargaron las ventas esperadas por mes. Cargalas en Archivo → "
+            "Configuracion, o esperá a tener unos dias de ventas."
+        )
+    if sugerido.origen_ventas == "esperado":
+        base = f"las ventas esperadas que cargaste ({formato(sugerido.ventas_mes_usd)} USD al mes)"
+    elif sugerido.origen_ventas == "proyectado":
+        base = (
+            f"lo vendido en {_dias(sugerido.dias_de_ventas)}, proyectado a un mes "
+            f"({formato(sugerido.ventas_mes_usd)} USD)"
+        )
+    else:
+        base = f"lo vendido en los ultimos 30 dias ({formato(sugerido.ventas_mes_usd)} USD)"
+    gastos = (
+        f"Gastos fijos del mes: {formato(sugerido.gastos_fijos_usd)} USD"
+        + (
+            f", mas {formato(sugerido.tasa_variable * 100)} % de comisiones sobre lo cobrado."
+            if sugerido.tasa_variable > 0
+            else "."
+        )
+    )
+    if sugerido.piso_pct is None:
+        return (
+            f"Calculado con {base}. {gastos}\n\n"
+            "Con ese volumen ningun margen alcanza: los gastos superan lo que se "
+            "vende. Hay que vender mas o bajar gastos; subir precios no lo arregla."
+        )
+    doble = sugerido.sugerido_si_vendiera(sugerido.ventas_mes_usd * 2)
+    return (
+        f"Calculado con {base}. {gastos}\n\n"
+        f"Margen minimo para no perder: {formato(sugerido.piso_pct)} % sobre el costo.\n"
+        f"Sugerido, con {formato(sugerido.ganancia_pct)} % de ganancia sobre las ventas: "
+        f"{formato(sugerido.sugerido_pct)} %.\n\n"
+        f"Este margen baja solo cuando se vende mas: con el doble de ventas bastaria "
+        f"{formato(doble)} %. Lo que ya tenga un margen mas alto (charcuteria, por "
+        "ejemplo) no se toca; eso lo decide el dueno."
+    )
 
 
 class DialogoProducto(QDialog):
@@ -325,3 +554,7 @@ class DialogoProducto(QDialog):
             avisar(self, str(error))
             return
         self.accept()
+
+
+def _dias(n: int) -> str:
+    return "1 dia" if n == 1 else f"{n} dias"

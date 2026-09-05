@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-295 pruebas.
+300 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -433,14 +433,51 @@ Después de la entrega (1.1.0), a pedido del cliente:
   necesarias con el margen actual, o margen necesario con las ventas
   proyectadas. Vive en la pantalla de Inicio. Es un `ResultadoPeriodo` más
   dos enteros; no hay tabla nueva.
-- **`gastos.repetir_mes_anterior`**: copia los gastos del mes anterior al mes
-  indicado. Se niega si el mes ya tiene gastos (duplicaría el alquiler) o si
-  el anterior está vacío. Los gastos siguen siendo por mes; esto solo evita
-  cargarlos a mano.
+- **`gastos.repetir_mes_anterior`** existió en 1.1.0 y se borró en 1.2.0:
+  los gastos recurrentes lo reemplazan. Una sola forma de hacerlo.
 - **El aviso de margen de la compra ahora aplica**: `ui/compras._avisar_margenes`
   ofrece «Aplicar los precios sugeridos» y pasa por `catalogo.aplicar_recalculo`,
   con lo que queda en la bitácora como cualquier cambio de precio. Antes era
   informativo y el cliente no encontraba dónde aplicar lo sugerido.
+
+Después de la entrega (1.2.0), a pedido del cliente:
+
+- **`gasto_recurrente` es tabla nueva, no columnas nuevas**: agregar columnas
+  a `gasto_operativo` habría exigido el runner de migraciones que todavía no
+  existe; una tabla con `CREATE IF NOT EXISTS` entra sola en las bases que ya
+  tienen datos. FIJO (monto por mes) o PORCENTAJE (de lo cobrado por un medio
+  o por todos). **No se materializan**: `gastos.total` los calcula mes a mes
+  (fijos vigentes + pct × cobrado por medio), así no hay duplicados ni «ya lo
+  copié». Dar de baja = `hasta_periodo`; nada se borra. RN-29 y
+  `ResultadoPeriodo` no cambiaron: `total` sigue devolviendo un `Decimal`.
+- **`dominio/reportes.MargenSugerido`**: el margen es una división, gastos ÷
+  ventas. Sobre ventas, `s = fijos/ventas + tasa_variable (+ ganancia)`;
+  RN-08 mide sobre costo, así que `m = s/(1−s)`. Con `s ≥ 1` no hay margen
+  que alcance y se devuelve `None` con mensaje, no un número. Da el **piso**
+  (sin ganancia) y el **sugerido** (con `equilibrio.ganancia_pct`, default
+  10 %), y `sugerido_si_vendiera` para mostrar que baja con el volumen, que
+  es lo que el cliente intuía.
+- **Volumen de referencia** (`reportes.margen_sugerido`): últimos 30 días de
+  ventas; con menos de 30 días de historia se proyecta desde la primera
+  venta; sin ventas, `equilibrio.ventas_esperadas_usd`; sin nada, `None`.
+  Los porcentuales pesan según la participación real de su medio en el
+  período; sin historial se asume el peor caso (todo por ese medio).
+- **El sistema no inventa un margen por producto.** Lo que sabe calcular es
+  el piso; lo que la harina tenga que ir más barata que la mayonesa para
+  competir lo sabe el dueño y ya tiene dónde decirlo (margen objetivo por
+  categoría y producto). `catalogo.previsualizar_margen` / `aplicar_margen`
+  suben al piso solo lo que está por debajo y recalculan precios con el
+  último costo; lo que está por encima se respeta. Se lo dijimos así al
+  cliente y está en el manual.
+- **`catalogo.margenes_actuales`** alimenta la columna «Margen %» de
+  Productos (rojo bajo el piso). Solo con `VER_COSTOS`.
+- **Venta del día**: `repo_reportes.productos_vendidos` y `totales_por_medio`
+  aceptan rango o `sesion_id`; `reportes.ventas_del_dia` (VER_REPORTES) y
+  `resumen_de_sesion` (REPORTE_CIERRE, sesión propia para el cajero) arman
+  el mismo `VentaDelDia`, y `ui/reportes.reporte_venta_del_dia` lo dibuja
+  igual en Reportes y en la pestaña «Qué se vendió» del cierre.
+- **Los nombres de los reportes ya no llevan «(RF-xx)»**: los códigos están
+  en los docstrings, que es donde le sirven a quien programa.
 
 Pendientes:
 

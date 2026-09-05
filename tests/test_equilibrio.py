@@ -6,11 +6,11 @@ base de demostracion, y la repeticion de gastos con sus dos negativas.
 
 from decimal import Decimal
 
-import pytest
 
 from minimarket.dominio.reportes import ALQUILER, Equilibrio, ResultadoPeriodo
 from minimarket.servicios import gastos as servicio_gastos
 from minimarket.servicios import reportes as servicio_reportes
+from minimarket.servicios import tasa as servicio_tasa
 
 
 def _equilibrio(ingreso, costo, perdidas, gastos, dia, dias_del_mes=30):
@@ -77,19 +77,134 @@ def test_el_servicio_arma_el_mes_hasta_hoy(conexion, categoria, general):
     assert e.resultado.gastos_usd == Decimal(300)  # el mes entero, RN-29
 
 
-def test_repetir_los_gastos_del_mes_anterior(conexion):
-    servicio_gastos.registrar(conexion, ALQUILER, "Alquiler", Decimal(350), periodo="2026-08")
-    servicio_gastos.registrar(conexion, ALQUILER, "Luz", Decimal(40), periodo="2026-08")
+def test_gastos_recurrentes_pesan_cada_mes_sin_cargarlos(conexion, categoria, general):
+    """Un fijo desde septiembre y un 3 % de lo cobrado por punto."""
+    from decimal import Decimal as D
 
-    copiados = servicio_gastos.repetir_mes_anterior(conexion, "2026-09")
-    assert {(g.descripcion, g.monto_usd, g.periodo) for g in copiados} == {
-        ("Alquiler", Decimal(350), "2026-09"),
-        ("Luz", Decimal(40), "2026-09"),
-    }
-    assert servicio_gastos.total(conexion, "2026-09-01", "2026-09-30") == Decimal(390)
+    from minimarket.dominio.reportes import FIJO, PORCENTAJE, SERVICIOS
+    from minimarket.dominio.venta import PUNTO, Venta
+    from minimarket.servicios import caja as servicio_caja
+    from minimarket.servicios import venta as servicio_venta
+    from tests.conftest import alta, cargar_tasa, registrar_compra
 
-    with pytest.raises(servicio_gastos.ErrorGasto, match="ya tiene gastos"):
-        servicio_gastos.repetir_mes_anterior(conexion, "2026-09")  # no duplica
-    with pytest.raises(servicio_gastos.ErrorGasto, match="no tiene gastos"):
-        servicio_gastos.repetir_mes_anterior(conexion, "2026-11")  # octubre vacio
-    assert servicio_gastos._mes_anterior("2027-01") == "2026-12"
+    servicio_gastos.registrar_recurrente(
+        conexion, ALQUILER, "Alquiler", FIJO, monto_usd=D(350), desde_periodo="2026-09"
+    )
+    servicio_gastos.registrar_recurrente(
+        conexion, SERVICIOS, "Punto", PORCENTAJE, porcentaje=D(3), medio=PUNTO,
+        desde_periodo="2026-09",
+    )
+    # Agosto: el alquiler todavia no regia.
+    assert servicio_gastos.total(conexion, "2026-08-01", "2026-08-31") == 0
+    # Septiembre sin ventas: solo el fijo.
+    assert servicio_gastos.total(conexion, "2026-09-01", "2026-09-30") == D(350)
+
+    # Una venta de 100 USD cobrada por punto, hoy → 3 USD de comision.
+    producto = alta(conexion, categoria, general, precio_venta_usd=D(100))
+    registrar_compra(conexion, producto.id, D(60))
+    hoy = servicio_tasa.hoy()
+    cargar_tasa(conexion, hoy)
+    servicio_caja.abrir(conexion)
+    venta = Venta(usuario_id=1, tasa=D(1))
+    venta.lineas = [servicio_venta.nueva_linea(conexion, producto.id, D(1))]
+    venta.pagos = [servicio_venta.pago(PUNTO, "USD", venta.total_usd, D(1))]
+    servicio_venta.registrar_venta(conexion, venta)
+    mes = hoy[:7]
+    total = servicio_gastos.total(conexion, f"{mes}-01", f"{mes}-31")
+    assert total == D(350) + D(3)
+    origenes = {r.origen for r in servicio_gastos.desglose_del_mes(conexion, mes)}
+    assert origenes == {"fijo mensual", "3 % de lo cobrado por punto"}
+
+    # Dar de baja: sigue contando este mes, no el que viene.
+    alquiler = servicio_gastos.listar_recurrentes(conexion)[0]
+    servicio_gastos.dar_de_baja_recurrente(conexion, alquiler.id, mes)
+    siguiente = f"{int(mes[:4]) + (mes[5:] == '12')}-{(int(mes[5:]) % 12) + 1:02d}"
+    assert servicio_gastos.total(conexion, f"{siguiente}-01", f"{siguiente}-28") == 0
+
+
+def _margen(ventas, fijos, variable, ganancia, origen="real"):
+    from minimarket.dominio.reportes import MargenSugerido
+
+    return MargenSugerido(
+        ventas_mes_usd=Decimal(ventas),
+        gastos_fijos_usd=Decimal(fijos),
+        tasa_variable=Decimal(variable),
+        ganancia_pct=Decimal(ganancia),
+        origen_ventas=origen,
+    )
+
+
+def test_margen_sugerido_a_mano():
+    """Vende 3.000 al mes, 600 de gastos fijos, 1 % de comisiones, quiere 10 %.
+
+    Sobre ventas: piso 0,20 + 0,01 = 0,21 → sobre costo 26,58 %.
+    Sugerido: 0,31 → 44,93 %. Con el doble de ventas el sugerido baja a 26,58 %.
+    """
+    m = _margen("3000", "600", "0.01", "10")
+    assert m.piso_pct == Decimal("26.58")
+    assert m.sugerido_pct == Decimal("44.93")
+    assert m.sugerido_si_vendiera(Decimal(6000)) == Decimal("26.58")
+
+
+def test_margen_sugerido_sin_salida():
+    """Gastos por encima de las ventas: ningun margen alcanza."""
+    m = _margen("500", "600", "0", "10")
+    assert m.piso_pct is None and m.sugerido_pct is None
+    assert _margen("0", "600", "0", "10").piso_pct is None
+
+
+def test_el_servicio_proyecta_los_primeros_dias(conexion, categoria, general):
+    from decimal import Decimal as D
+
+    from minimarket.dominio.reportes import FIJO
+    from minimarket.dominio.venta import EFECTIVO, Venta
+    from minimarket.servicios import caja as servicio_caja
+    from minimarket.servicios import venta as servicio_venta
+    from tests.conftest import alta, cargar_tasa, registrar_compra
+
+    hoy = servicio_tasa.hoy()
+    assert servicio_reportes.margen_sugerido(conexion, hoy) is None  # nada aun
+
+    servicio_gastos.registrar_recurrente(
+        conexion, ALQUILER, "Alquiler", FIJO, monto_usd=D(300), desde_periodo=hoy[:7]
+    )
+    producto = alta(conexion, categoria, general, precio_venta_usd=D("116"))
+    registrar_compra(conexion, producto.id, D(70))
+    cargar_tasa(conexion, hoy)
+    servicio_caja.abrir(conexion)
+    venta = Venta(usuario_id=1, tasa=D(1))
+    venta.lineas = [servicio_venta.nueva_linea(conexion, producto.id, D(1))]
+    venta.pagos = [servicio_venta.pago(EFECTIVO, "USD", venta.total_usd, D(1))]
+    servicio_venta.registrar_venta(conexion, venta)
+
+    m = servicio_reportes.margen_sugerido(conexion, hoy)
+    # Primera venta hoy: 1 dia de historia, 100 sin IVA → 3.000 al mes proyectados.
+    assert (m.origen_ventas, m.dias_de_ventas) == ("proyectado", 1)
+    assert m.ventas_mes_usd == D("3000.00")
+    assert m.gastos_fijos_usd == D(300)
+    assert m.ganancia_pct == D(10)  # el default de la configuracion
+    assert m.piso_pct == D("11.11")  # 300/3000 = 0,10 → 0,10/0,90
+
+
+def test_aplicar_el_margen_sube_solo_lo_que_esta_por_debajo(conexion, categoria, general):
+    """Viveres tiene 30 %. Con piso 25 no se toca; con piso 40 sube y recalcula."""
+    from decimal import Decimal as D
+
+    from minimarket.servicios import catalogo
+    from tests.conftest import alta, registrar_compra
+
+    producto = alta(conexion, categoria, general, precio_venta_usd=D("1.00"))
+    registrar_compra(conexion, producto.id, D("1.00"))
+
+    plan = catalogo.previsualizar_margen(conexion, D(25))
+    assert plan.categorias == [] and plan.productos == []
+    assert len(plan.cambios) == 1  # el precio 1,00 no respeta ni el 30 % de la categoria
+
+    plan = catalogo.previsualizar_margen(conexion, D(40))
+    assert [(c.nombre, m) for c, m in plan.categorias] == [("Viveres", D(30))]
+    (cambiado, precio), = plan.cambios
+    assert precio == D("1.6240")  # 1,00 × 1,40 = 1,40 base; + 16 % IVA
+    catalogo.aplicar_margen(conexion, plan)
+    assert catalogo.listar_categorias(conexion)[0].margen_objetivo == D(40)
+    assert catalogo.obtener_producto(conexion, producto.id).precio_venta_usd == D("1.6240")
+    assert catalogo.margenes_actuales(conexion)[producto.id] == D("40.00")

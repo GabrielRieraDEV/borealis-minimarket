@@ -358,6 +358,32 @@ CREATE TABLE IF NOT EXISTS gasto_operativo (
 );
 CREATE INDEX IF NOT EXISTS ix_gasto_periodo ON gasto_operativo (periodo);
 
+-- Gastos que se repiten todos los meses sin volver a cargarlos (pedido del
+-- cliente, 1.2.0). FIJO: un monto por mes (alquiler, sueldos). PORCENTAJE: una
+-- fraccion de lo cobrado en el mes, por un medio de pago o por todos (la
+-- comision del punto de venta). No se materializan en gasto_operativo: el
+-- total del mes los calcula. Dar de baja = poner hasta_periodo.
+CREATE TABLE IF NOT EXISTS gasto_recurrente (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    categoria     TEXT    NOT NULL,
+    descripcion   TEXT    NOT NULL,
+    tipo          TEXT    NOT NULL,                 -- FIJO | PORCENTAJE
+    monto_usd     INTEGER NOT NULL DEFAULT 0,       -- x100, FIJO
+    porcentaje    INTEGER NOT NULL DEFAULT 0,       -- x100, PORCENTAJE
+    medio         TEXT,                             -- NULL: todo lo cobrado
+    desde_periodo TEXT    NOT NULL,                 -- AAAA-MM
+    hasta_periodo TEXT,                             -- NULL: sigue vigente
+    usuario_id    INTEGER NOT NULL REFERENCES usuario(id),
+    creado_en     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    CONSTRAINT ck_recurrente_tipo CHECK (tipo IN ('FIJO','PORCENTAJE')),
+    CONSTRAINT ck_recurrente_categoria CHECK (categoria IN
+        ('ALQUILER','SERVICIOS','SUELDOS','OTROS')),
+    CONSTRAINT ck_recurrente_medio CHECK (medio IS NULL OR medio IN
+        ('EFECTIVO','PAGO_MOVIL','PUNTO','TRANSFERENCIA')),
+    CONSTRAINT ck_recurrente_valor CHECK (
+        (tipo = 'FIJO' AND monto_usd > 0) OR (tipo = 'PORCENTAJE' AND porcentaje > 0))
+);
+
 -- ---------------------------------------------------------------------
 -- 8. VISTAS DE APOYO
 -- ---------------------------------------------------------------------
@@ -417,7 +443,9 @@ INSERT OR IGNORE INTO configuracion (clave, valor, descripcion) VALUES
     ('impresora.destino',      '',       'Impresora ESC/POS: nombre en Windows o ruta del dispositivo'),
     ('respaldo.ruta',          '',       'Carpeta de destino del respaldo diario'),
     ('respaldo.hora',          '22:00',  'Hora de ejecucion del respaldo'),
-    ('bcv.url',                '',       'Origen de consulta de la tasa oficial');
+    ('bcv.url',                '',       'Origen de consulta de la tasa oficial'),
+    ('equilibrio.ganancia_pct',        '10', 'Ganancia deseada sobre las ventas, para el margen sugerido'),
+    ('equilibrio.ventas_esperadas_usd', '',   'Ventas mensuales esperadas mientras no haya historial');
 
 -- Usuario de arranque. movimiento_inventario.usuario_id y caja_sesion son NOT
 -- NULL, pero la autenticacion es de la Fase 4: sin esta fila las fases 2 y 3 no

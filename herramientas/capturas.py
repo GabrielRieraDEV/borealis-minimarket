@@ -31,6 +31,7 @@ PESTANAS = [
     ("compras", "Co&mpras"),
     ("existencias", "&Existencias"),
     ("perdidas", "&Perdidas"),
+    ("gastos", "&Gastos"),
     ("reportes", "&Reportes"),
 ]
 
@@ -42,7 +43,8 @@ def main() -> int:
     from minimarket.ui import estilo
     from minimarket.ui.principal import VentanaPrincipal
     from minimarket.ui.usuarios import DialogoIngreso
-    from minimarket.ui.venta import DialogoCobro
+    from minimarket.ui.productos import DialogoMargenSugerido
+    from minimarket.ui.venta import DialogoCierre, DialogoCobro
 
     base = (
         Path(sys.argv[1])
@@ -83,6 +85,12 @@ def main() -> int:
     venta = ventana.pestanas.widget(indices["&Venta"])
     cobro = DialogoCobro(venta._venta_en_curso())
     _guardar(cobro, "cobro")
+    _guardar(DialogoMargenSugerido(conexion), "margen")
+    from minimarket.servicios import caja as servicio_caja
+    sesion = servicio_caja.sesion_abierta(conexion)
+    cierre = DialogoCierre(conexion, sesion.id)
+    cierre.findChild(__import__("PySide6.QtWidgets", fromlist=["QTabWidget"]).QTabWidget).setCurrentIndex(1)
+    _guardar(cierre, "cierre")
 
     conexion.close()
     return 0

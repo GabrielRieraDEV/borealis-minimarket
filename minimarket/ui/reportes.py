@@ -65,24 +65,20 @@ class PantallaReportes(QWidget):
         # reglas). El servicio lo verifica igual: esto es para no ofrecerle un
         # reporte que le va a dar error.
         self.tipo = QComboBox()
+        # Nombres en el idioma del dueno, sin codigos de requisito: los RF-xx
+        # estan en el docstring de cada metodo, que es donde le sirven a quien
+        # programa.
         for permiso, etiqueta, generador in (
-            (VER_REPORTES, "Ventas del periodo (RF-48)", self._ventas),
-            (VER_REPORTES, "Inventario valorizado (RF-49)", self._inventario),
-            (
-                REPORTES_GANANCIA,
-                "Ganancia por producto (RF-50)",
-                self._ganancia_producto,
-            ),
-            (
-                REPORTES_GANANCIA,
-                "Ganancia por categoria (RF-50)",
-                self._ganancia_categoria,
-            ),
-            (REPORTE_CIERRE, "Cierre de caja (RF-51)", self._cierre),
-            (VER_REPORTES, "Libro de ventas (RF-52)", self._libro),
-            (REPORTES_GANANCIA, "Perdidas por motivo (RF-53)", self._perdidas),
-            (VER_EXISTENCIAS, "Proximos a vencer (RF-54)", self._vencimientos),
-            (REPORTES_GANANCIA, "Ganancia real del periodo (RF-55)", self._real),
+            (VER_REPORTES, "Ventas del dia: que se vendio y como se cobro", self._dia),
+            (VER_REPORTES, "Ventas del periodo, por medio de pago", self._ventas),
+            (REPORTE_CIERRE, "Cierre de caja (arqueo)", self._cierre),
+            (REPORTES_GANANCIA, "Ganancia por producto", self._ganancia_producto),
+            (REPORTES_GANANCIA, "Ganancia por categoria", self._ganancia_categoria),
+            (REPORTES_GANANCIA, "Resultado del periodo: ganancia real", self._real),
+            (VER_REPORTES, "Inventario valorizado", self._inventario),
+            (VER_EXISTENCIAS, "Proximos a vencer", self._vencimientos),
+            (REPORTES_GANANCIA, "Perdidas por motivo", self._perdidas),
+            (VER_REPORTES, "Libro de ventas (para el contador)", self._libro),
         ):
             if servicio_usuarios.tiene_permiso(conexion, permiso):
                 self.tipo.addItem(etiqueta, generador)
@@ -134,8 +130,9 @@ class PantallaReportes(QWidget):
 
     def _cambiar_tipo(self) -> None:
         es_cierre = self.tipo.currentData() == self._cierre
+        es_dia = self.tipo.currentData() == self._dia
         self.sesion.setVisible(es_cierre)
-        self.desde.setEnabled(not es_cierre)
+        self.desde.setEnabled(not es_cierre and not es_dia)  # el dia es «hasta»
         self.hasta.setEnabled(not es_cierre)
         if es_cierre:
             self._cargar_sesiones()
@@ -212,6 +209,13 @@ class PantallaReportes(QWidget):
         return (
             self.desde.date().toString("yyyy-MM-dd"),
             self.hasta.date().toString("yyyy-MM-dd"),
+        )
+
+    def _dia(self) -> Reporte:
+        """Ventas del dia (1.2.0): productos vendidos y lo cobrado por medio."""
+        _, fecha = self._rango()
+        return reporte_venta_del_dia(
+            servicio_reportes.ventas_del_dia(self.conexion, fecha)
         )
 
     def _ventas(self) -> Reporte:
@@ -368,16 +372,16 @@ class PantallaReportes(QWidget):
         resultado = servicio_reportes.ganancia_real(self.conexion, desde, hasta)
         # El reporte es una cuenta corta: cada renglon es un termino de RN-29.
         renglones = [
-            ("Ingreso sin IVA (base imponible + exento)", resultado.ingreso_usd),
-            ("Costo de la mercancia vendida (RN-27)", -resultado.costo_usd),
-            ("Ganancia bruta (RN-28)", resultado.ganancia_bruta_usd),
-            ("Perdidas del periodo (RN-18)", -resultado.perdidas_usd),
-            ("Gastos operativos", -resultado.gastos_usd),
-            ("Ganancia real (RN-29)", resultado.ganancia_real_usd),
+            ("Vendido, sin IVA", resultado.ingreso_usd),
+            ("Lo que costo esa mercancia", -resultado.costo_usd),
+            ("Ganancia bruta (lo que dejaron las ventas)", resultado.ganancia_bruta_usd),
+            ("Perdidas (vencido, roto, faltante)", -resultado.perdidas_usd),
+            ("Gastos del mes (fijos y comisiones)", -resultado.gastos_usd),
+            ("Ganancia real (lo que queda)", resultado.ganancia_real_usd),
         ]
         return Reporte(
-            titulo="Ganancia real del periodo",
-            subtitulo=f"Del {desde} al {hasta}. Los gastos no se prorratean.",
+            titulo="Resultado del periodo",
+            subtitulo=f"Del {desde} al {hasta}. Los gastos del mes se cuentan enteros.",
             columnas=["Concepto", "USD"],
             filas=[[concepto, formato(monto)] for concepto, monto in renglones],
             pie=[
@@ -450,3 +454,34 @@ def _celda(fila, atributo: str, decimales: int) -> str:
     """RN-31. `COLUMNAS_LIBRO` manda: cambiarlas no toca esta pantalla."""
     valor = getattr(fila, atributo)
     return formato(valor, decimales) if decimales else str(valor)
+
+
+
+def reporte_venta_del_dia(dia) -> Reporte:
+    """La misma tabla en Reportes y en el cierre de caja: «se vendieron tantas
+    harinas y son 23 de pago movil»."""
+    medios = " · ".join(
+        f"{NOMBRE_MEDIO.get(m.medio, m.medio)} {formato(m.monto)} {m.moneda}"
+        for m in dia.por_medio
+    )
+    return Reporte(
+        titulo=dia.titulo,
+        subtitulo=f"{dia.ventas} ventas · {formato(dia.total_usd)} USD",
+        columnas=["Producto", "Cantidad", "Total USD"],
+        filas=[
+            [p.nombre, formato(p.cantidad, 3), formato(p.total_usd)]
+            for p in dia.productos
+        ],
+        pie=[
+            f"{dia.ventas} ventas por {formato(dia.total_usd)} USD",
+            f"Cobrado: {medios}" if medios else "Sin cobros",
+        ],
+    )
+
+
+NOMBRE_MEDIO = {
+    "EFECTIVO": "Efectivo",
+    "PAGO_MOVIL": "Pago movil",
+    "PUNTO": "Punto",
+    "TRANSFERENCIA": "Transferencia",
+}

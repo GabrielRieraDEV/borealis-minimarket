@@ -14,6 +14,7 @@ TABLAS = {
     "movimiento_inventario", "motivo_perdida", "perdida", "ajuste_inventario",
     "caja_sesion", "cliente", "venta", "venta_detalle", "venta_pago",
     "gasto_operativo",
+    "gasto_recurrente",
 }
 
 
@@ -33,9 +34,9 @@ def nombres(conexion, tipo):
 
 
 class TestApertura:
-    def test_crea_las_23_tablas(self, conexion):
+    def test_crea_las_24_tablas(self, conexion):
         assert nombres(conexion, "table") - {"sqlite_sequence"} == TABLAS
-        assert len(TABLAS) == 23
+        assert len(TABLAS) == 24  # 23 del modelo + gasto_recurrente (1.2.0)
 
     def test_crea_las_vistas(self, conexion):
         assert nombres(conexion, "view") == {"v_existencia", "v_ultimo_costo"}
@@ -53,7 +54,7 @@ class TestApertura:
         esperado = {
             "alicuota_iva": 3,
             "motivo_perdida": 5,
-            "configuracion": 12,
+            "configuracion": 14,
             "usuario": 1,
         }
         for tabla, cuantos in esperado.items():

@@ -62,6 +62,18 @@ CAMPOS: list[Campo] = [
     Campo("respaldo.ruta", "Carpeta de respaldo", "La unidad externa (RF-61)"),
     Campo("respaldo.hora", "Hora del respaldo", "A partir de esa hora, HH:MM"),
     Campo(
+        "equilibrio.ganancia_pct",
+        "Ganancia deseada (% de las ventas)",
+        "Para el margen sugerido: lo que quiere que quede despues de los gastos",
+        numerico=True,
+    ),
+    Campo(
+        "equilibrio.ventas_esperadas_usd",
+        "Ventas esperadas por mes (USD)",
+        "Solo mientras no haya ventas reales; despues el sistema usa las reales",
+        numerico=True,
+    ),
+    Campo(
         "bcv.url",
         "Origen de la tasa BCV",
         "Dejalo vacio: consulta bcv.org.ve. Solo se llena si el BCV cambia de sitio",

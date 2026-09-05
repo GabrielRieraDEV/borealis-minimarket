@@ -12,16 +12,20 @@ de su propia sesion.
 import calendar
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from minimarket.datos.repositorios import caja as repo_caja
+from minimarket.datos.repositorios import configuracion as repo_configuracion
 from minimarket.datos.repositorios import inventario as repo_inventario
 from minimarket.datos.repositorios import reportes as repo_reportes
+from minimarket.dominio.dinero import redondear
 from minimarket.dominio.inventario import ExistenciaProducto, SaldoLoteProducto
 from minimarket.dominio.reportes import (
     Equilibrio,
     FilaGanancia,
+    MargenSugerido,
+    VentaDelDia,
     FilaPerdida,
     Libro,
     ResultadoPeriodo,
@@ -155,6 +159,110 @@ def equilibrio_del_mes(
         resultado=ganancia_real(conexion, hoy[:8] + "01", hoy),
         dias_transcurridos=fecha.day,
         dias_del_mes=calendar.monthrange(fecha.year, fecha.month)[1],
+    )
+
+
+DIAS_REFERENCIA = 30
+
+
+def margen_sugerido(
+    conexion: sqlite3.Connection, hoy: str | None = None
+) -> MargenSugerido | None:
+    """A que margen vender para pagar los gastos y ganar (1.2.0).
+
+    El volumen de referencia son las ventas de los ultimos 30 dias. Si el
+    negocio tiene menos de 30 dias vendiendo, se proyectan a 30 desde la
+    primera venta. Sin ventas, se usan las «ventas esperadas» de la
+    configuracion, si el dueno las cargo. Sin nada de eso, no hay sugerencia:
+    devolver un margen inventado seria peor que no devolver ninguno.
+
+    Los porcentuales (comisiones) entran como fraccion de las ventas, asi que
+    no dependen del volumen; los fijos si, y por eso el sugerido baja cuando
+    el negocio vende mas.
+    """
+    servicio_usuarios.exigir(conexion, REPORTES_GANANCIA)
+    hoy = hoy or servicio_tasa.hoy()
+    fecha = date.fromisoformat(hoy)
+    desde = (fecha - timedelta(days=DIAS_REFERENCIA - 1)).isoformat()
+    ingreso, _ = repo_reportes.ingreso_y_cmv(conexion, desde, hoy)
+    primera = repo_reportes.primera_venta(conexion)
+
+    if ingreso > 0 and primera is not None:
+        dias = min(DIAS_REFERENCIA, (fecha - date.fromisoformat(primera)).days + 1)
+        if dias >= DIAS_REFERENCIA:
+            ventas, origen = ingreso, "real"
+        else:
+            ventas = redondear(ingreso / dias * DIAS_REFERENCIA, 2)
+            origen = "proyectado"
+    else:
+        dias = 0
+        ventas = repo_configuracion.leer_decimal(
+            conexion, "equilibrio.ventas_esperadas_usd", Decimal(0)
+        )
+        origen = "esperado"
+        if ventas <= 0:
+            return None
+
+    fijos, porcentuales = servicio_gastos.gastos_del_mes_para_margen(conexion, hoy[:7])
+    # Cada porcentual pesa sobre lo cobrado por su medio. Se reparte segun el
+    # peso real de cada medio en el periodo de referencia; sin historial, se
+    # asume que todo se cobra por ese medio (peor caso, margen mas prudente).
+    cobrado = {}
+    for linea in repo_reportes.totales_por_medio(conexion, desde, hoy):
+        cobrado[linea.medio] = cobrado.get(linea.medio, Decimal(0)) + linea.monto_usd
+    total_cobrado = sum(cobrado.values(), Decimal(0))
+    tasa_variable = Decimal(0)
+    for gasto in porcentuales:
+        if gasto.medio is None or total_cobrado <= 0:
+            peso = Decimal(1)
+        else:
+            peso = cobrado.get(gasto.medio, Decimal(0)) / total_cobrado
+        tasa_variable += gasto.porcentaje / 100 * peso
+
+    return MargenSugerido(
+        ventas_mes_usd=ventas,
+        gastos_fijos_usd=fijos,
+        tasa_variable=tasa_variable,
+        ganancia_pct=repo_configuracion.leer_decimal(
+            conexion, "equilibrio.ganancia_pct", Decimal(10)
+        ),
+        origen_ventas=origen,
+        dias_de_ventas=dias,
+    )
+
+
+def ventas_del_dia(conexion: sqlite3.Connection, fecha: str) -> VentaDelDia:
+    """Que se vendio y por que medio se cobro, en un dia (1.2.0)."""
+    servicio_usuarios.exigir(conexion, VER_REPORTES)
+    _validar_rango(fecha, fecha)
+    resumen = repo_reportes.resumen_ventas(conexion, fecha, fecha)
+    return VentaDelDia(
+        titulo=f"Ventas del {fecha}",
+        productos=repo_reportes.productos_vendidos(conexion, fecha, fecha),
+        por_medio=resumen.por_medio,
+        ventas=resumen.cantidad,
+        total_usd=resumen.total_usd,
+    )
+
+
+def resumen_de_sesion(conexion: sqlite3.Connection, sesion_id: int) -> VentaDelDia:
+    """Lo mismo, para la sesion de caja: lo ve el cajero al cerrar la suya."""
+    servicio_usuarios.exigir(conexion, REPORTE_CIERRE)
+    sesion = repo_caja.obtener(conexion, sesion_id)
+    if sesion is None:
+        raise ErrorReporte("La sesion de caja no existe.")
+    if not servicio_usuarios.tiene_permiso(conexion, REPORTES_GANANCIA):
+        if sesion.usuario_apertura_id != usuario_actual():
+            raise servicio_usuarios.ErrorPermiso(
+                "Solo se puede consultar el cierre de la caja propia."
+            )
+    ventas, total = repo_reportes.ventas_de_sesion(conexion, sesion_id)
+    return VentaDelDia(
+        titulo=f"Caja #{sesion_id}",
+        productos=repo_reportes.productos_vendidos(conexion, sesion_id=sesion_id),
+        por_medio=repo_reportes.totales_por_medio(conexion, sesion_id=sesion_id),
+        ventas=ventas,
+        total_usd=total,
     )
 
 

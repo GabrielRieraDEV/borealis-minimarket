@@ -18,6 +18,7 @@ from minimarket.dominio.reportes import (
     FilaGanancia,
     FilaLibro,
     FilaPerdida,
+    ProductoVendido,
     ResumenVentas,
     TotalPorMedio,
 )
@@ -70,9 +71,17 @@ def resumen_ventas(
 
 
 def totales_por_medio(
-    conexion: sqlite3.Connection, desde: str, hasta: str
+    conexion: sqlite3.Connection,
+    desde: str = "",
+    hasta: str = "",
+    sesion_id: int | None = None,
 ) -> list[TotalPorMedio]:
-    """RF-48. Agrupado por medio y moneda: el efectivo convive en Bs y USD."""
+    """RF-48. Agrupado por medio y moneda: el efectivo convive en Bs y USD.
+
+    Por rango de fechas, o por sesion de caja (para la venta del dia al
+    cerrar); las dos cosas a la vez tambien sirven.
+    """
+    filtro, parametros = _filtro(desde, hasta, sesion_id)
     return [
         TotalPorMedio(
             medio=f["medio"],
@@ -84,12 +93,71 @@ def totales_por_medio(
             f"""SELECT p.medio, p.moneda,
                        SUM(p.monto) AS monto, SUM(p.monto_usd) AS monto_usd
                   FROM venta_pago p JOIN venta v ON v.id = p.venta_id
-                 WHERE v.estado <> ? {_RANGO}
+                 WHERE v.estado <> ? {filtro}
                  GROUP BY p.medio, p.moneda
                  ORDER BY p.medio, p.moneda""",
-            [ANULADA, *_limites(desde, hasta)],
+            [ANULADA, *parametros],
         )
     ]
+
+
+def productos_vendidos(
+    conexion: sqlite3.Connection,
+    desde: str = "",
+    hasta: str = "",
+    sesion_id: int | None = None,
+) -> list[ProductoVendido]:
+    """La venta del dia (1.2.0): que se vendio y cuanto, de mas a menos.
+
+    `descripcion` es la congelada en la linea, no el nombre actual del
+    producto: es lo que salio en la nota.
+    """
+    filtro, parametros = _filtro(desde, hasta, sesion_id)
+    return [
+        ProductoVendido(
+            producto_id=f["producto_id"],
+            nombre=f["nombre"],
+            cantidad=desde_entero(f["cantidad"], ESCALA_CANTIDAD),
+            total_usd=desde_entero(f["total"], ESCALA_TOTAL),
+        )
+        for f in conexion.execute(
+            f"""SELECT d.producto_id, MAX(d.descripcion) AS nombre,
+                       SUM(d.cantidad) AS cantidad, SUM(d.total_linea_usd) AS total
+                  FROM venta_detalle d JOIN venta v ON v.id = d.venta_id
+                 WHERE v.estado <> ? {filtro}
+                 GROUP BY d.producto_id
+                 ORDER BY cantidad DESC, nombre""",
+            [ANULADA, *parametros],
+        )
+    ]
+
+
+def ventas_de_sesion(conexion: sqlite3.Connection, sesion_id: int) -> tuple[int, Decimal]:
+    fila = conexion.execute(
+        """SELECT COUNT(*) AS cantidad, COALESCE(SUM(total_usd), 0) AS total
+             FROM venta WHERE caja_sesion_id = ? AND estado <> ?""",
+        (sesion_id, ANULADA),
+    ).fetchone()
+    return fila["cantidad"], desde_entero(fila["total"], ESCALA_TOTAL)
+
+
+def primera_venta(conexion: sqlite3.Connection) -> str | None:
+    """La fecha de la primera venta valida; None si todavia no se vendio."""
+    fila = conexion.execute(
+        "SELECT MIN(fecha_hora) FROM venta WHERE estado <> ?", (ANULADA,)
+    ).fetchone()
+    return fila[0][:10] if fila and fila[0] else None
+
+
+def _filtro(desde: str, hasta: str, sesion_id: int | None) -> tuple[str, list]:
+    filtro, parametros = "", []
+    if desde and hasta:
+        filtro += _RANGO
+        parametros += _limites(desde, hasta)
+    if sesion_id is not None:
+        filtro += " AND v.caja_sesion_id = ?"
+        parametros.append(sesion_id)
+    return filtro, parametros
 
 
 def ganancia_por_producto(

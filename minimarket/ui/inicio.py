@@ -10,11 +10,15 @@ import sqlite3
 from datetime import date, timedelta
 from decimal import Decimal
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QGroupBox,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -63,9 +67,17 @@ class PantallaInicio(QWidget):
         self.equilibrio_margen = QLabel()
         self.equilibrio_veredicto = QLabel()
         self.equilibrio_veredicto.setWordWrap(True)
+        self.sugerido = QLabel()
+        self.sugerido.setWordWrap(True)
+        self.boton_margen = QPushButton("¿A que margen vender?…")
+        self.boton_margen.clicked.connect(self.abrir_margen)
+        fila = QHBoxLayout()
+        fila.addWidget(self.sugerido, stretch=1)
+        fila.addWidget(self.boton_margen, alignment=Qt.AlignTop)
         adentro = QVBoxLayout(self.equilibrio_titulo)
         adentro.addWidget(self.equilibrio_margen)
         adentro.addWidget(self.equilibrio_veredicto)
+        adentro.addLayout(fila)
 
         disposicion = QVBoxLayout(self)
         disposicion.addWidget(estado)
@@ -96,6 +108,17 @@ class PantallaInicio(QWidget):
         self.equilibrio_veredicto.setStyleSheet(
             "" if bien is None else (ESTILO_BIEN if bien else ESTILO_MAL)
         )
+        try:
+            sugerido = servicio_reportes.margen_sugerido(self.conexion)
+        except ErrorServicio:
+            sugerido = None
+        self.sugerido.setText(_texto_sugerido(sugerido))
+
+    def abrir_margen(self) -> None:
+        from minimarket.ui.productos import DialogoMargenSugerido
+
+        if DialogoMargenSugerido(self.conexion, self).exec() == QDialog.Accepted:
+            self.refrescar()
 
     def _estado(self) -> None:
         vigente = servicio_tasa.tasa_del_dia(self.conexion)
@@ -153,6 +176,30 @@ class PantallaInicio(QWidget):
         )
 
 
+def _texto_sugerido(sugerido) -> str:
+    """Una linea: el piso, el sugerido y con que se calcularon."""
+    if sugerido is None:
+        return (
+            "Margen sugerido: todavia no hay ventas ni ventas esperadas cargadas "
+            "(Archivo → Configuracion)."
+        )
+    if sugerido.piso_pct is None:
+        return (
+            "Margen sugerido: con este volumen ningun margen cubre los gastos. "
+            "Hay que vender mas o bajar gastos."
+        )
+    origen = {
+        "real": "los ultimos 30 dias",
+        "proyectado": f"{_dias(sugerido.dias_de_ventas)} de ventas, proyectados",
+        "esperado": "las ventas esperadas cargadas",
+    }[sugerido.origen_ventas]
+    return (
+        f"Margen minimo para no perder: {formato(sugerido.piso_pct)} % · "
+        f"Sugerido con {formato(sugerido.ganancia_pct)} % de ganancia: "
+        f"{formato(sugerido.sugerido_pct)} % sobre el costo (segun {origen})."
+    )
+
+
 def _texto_equilibrio(equilibrio, mes: str) -> tuple[str, str, bool | None]:
     """Dos renglones: que dejan las ventas, y si alcanza. Sin jerga contable."""
     resultado = equilibrio.resultado
@@ -166,7 +213,7 @@ def _texto_equilibrio(equilibrio, mes: str) -> tuple[str, str, bool | None]:
             None,
         )
     margen = (
-        f"En {equilibrio.dias_transcurridos} dias se vendieron "
+        f"En {_dias(equilibrio.dias_transcurridos)} se vendieron "
         f"{formato(resultado.ingreso_usd)} USD y dejaron "
         f"{formato(equilibrio.contribucion_usd)} USD: un margen bruto de "
         f"{formato(equilibrio.margen_bruto_pct)} %."
@@ -259,3 +306,7 @@ def _llenar(tabla: QTableWidget, filas: list[list[str]]) -> None:
     for numero, fila in enumerate(visibles):
         for columna, texto in enumerate(fila):
             tabla.setItem(numero, columna, QTableWidgetItem(texto))
+
+
+def _dias(n: int) -> str:
+    return "1 dia" if n == 1 else f"{n} dias"

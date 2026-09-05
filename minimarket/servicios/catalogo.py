@@ -6,7 +6,7 @@ La interfaz no habla con `datos/`: entra por aca. Los errores salen como
 
 import csv
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 
 from minimarket.datos.conexion import transaccion
@@ -229,6 +229,137 @@ def aplicar_recalculo(
                 despues={"precio_venta_usd": precio},
             )
     return len(cambios)
+
+
+def previsualizar_recalculo_total(
+    conexion: sqlite3.Connection,
+) -> list[tuple[Producto, Decimal]]:
+    """RF-08 para todo el catalogo: el boton que pidio el cliente (1.2.0)."""
+    servicio_usuarios.exigir(conexion, MODIFICAR_PRECIOS)
+    cambios = []
+    for categoria in repo_categoria.listar(conexion, solo_activas=False):
+        cambios.extend(previsualizar_recalculo(conexion, categoria.id))
+    return cambios
+
+
+@dataclass(frozen=True)
+class PlanDeMargen:
+    """Lo que pasaria al aplicar un margen como piso a todo el catalogo.
+
+    `categorias` y `productos` son los que hoy tienen un margen objetivo por
+    debajo y subirian a `margen_pct`; lo que esta por encima no se toca (es
+    lo que el dueno decidio). `cambios` son los precios resultantes, listos
+    para `aplicar_recalculo`. `sin_costo` cuenta los productos que no se
+    pueden recalcular porque nunca se compraron.
+    """
+
+    margen_pct: Decimal
+    categorias: list[tuple[Categoria, Decimal]]
+    productos: list[tuple[Producto, Decimal]]
+    cambios: list[tuple[Producto, Decimal]]
+    sin_costo: int
+
+
+def previsualizar_margen(
+    conexion: sqlite3.Connection, margen_pct: Decimal
+) -> PlanDeMargen:
+    """Que cambiaria si `margen_pct` fuera el piso de todo el catalogo (1.2.0).
+
+    No toca nada. Calcula los precios como si los margenes ya estuvieran
+    subidos, con el ultimo costo de cada producto (RN-07, RN-09).
+    """
+    servicio_usuarios.exigir(conexion, MODIFICAR_PRECIOS)
+    if margen_pct < 0:
+        raise ErrorCatalogo("El margen no puede ser negativo.")
+    alicuotas = {a.id: a.porcentaje for a in repo_alicuota.listar(conexion)}
+    categorias_subir, productos_subir, cambios, sin_costo = [], [], [], 0
+    for categoria in repo_categoria.listar(conexion, solo_activas=False):
+        nueva = categoria
+        if categoria.margen_objetivo < margen_pct:
+            categorias_subir.append((categoria, categoria.margen_objetivo))
+            nueva = Categoria(categoria.id, categoria.nombre, margen_pct, categoria.activo)
+        costos = repo_producto.ultimos_costos(conexion, categoria.id)
+        for producto in repo_producto.listar(
+            conexion, categoria_id=categoria.id, limite=1_000_000
+        ):
+            if producto.margen_objetivo is not None and producto.margen_objetivo < margen_pct:
+                productos_subir.append((producto, producto.margen_objetivo))
+                producto = replace(producto, margen_objetivo=margen_pct)
+            costo = costos.get(producto.id)
+            if costo is None:
+                sin_costo += 1
+                continue
+            precio = precio_sugerido(costo, producto, nueva, alicuotas[producto.alicuota_iva_id])
+            if precio != producto.precio_venta_usd:
+                cambios.append((producto, precio))
+    return PlanDeMargen(margen_pct, categorias_subir, productos_subir, cambios, sin_costo)
+
+
+def aplicar_margen(conexion: sqlite3.Connection, plan: PlanDeMargen) -> int:
+    """Sube los margenes por debajo del piso y recalcula los precios; todo o nada.
+
+    Cada precio queda en la bitacora por `aplicar_recalculo` (RF-59); los
+    margenes, en un asiento propio.
+    """
+    servicio_usuarios.exigir(conexion, MODIFICAR_PRECIOS)
+    autor = usuario_actual()
+    with transaccion(conexion):
+        for categoria, _ in plan.categorias:
+            repo_categoria.actualizar(
+                conexion,
+                Categoria(categoria.id, categoria.nombre, plan.margen_pct, categoria.activo),
+            )
+        for producto, _ in plan.productos:
+            repo_producto.actualizar(conexion, replace(producto, margen_objetivo=plan.margen_pct))
+        if plan.categorias or plan.productos:
+            auditoria.registrar(
+                conexion,
+                autor,
+                auditoria.RECALCULO_PRECIOS,
+                "categoria",
+                antes={
+                    "categorias": {c.nombre: str(m) for c, m in plan.categorias},
+                    "productos": {p.nombre: str(m) for p, m in plan.productos},
+                },
+                despues={"margen_objetivo": str(plan.margen_pct)},
+            )
+        for producto, precio in plan.cambios:
+            repo_producto.actualizar_precio(conexion, producto.id, precio)
+            auditoria.registrar(
+                conexion,
+                autor,
+                auditoria.RECALCULO_PRECIOS,
+                "producto",
+                producto.id,
+                antes={"precio_venta_usd": producto.precio_venta_usd},
+                despues={"precio_venta_usd": precio},
+            )
+    return len(plan.cambios)
+
+
+def margenes_actuales(conexion: sqlite3.Connection) -> dict[int, Decimal | None]:
+    """RN-08 para todo el catalogo: el margen que deja el precio de hoy.
+
+    Para la columna «Margen %» de la pantalla de productos. None: sin costo
+    de compra, no determinable. Solo quien puede ver costos.
+    """
+    servicio_usuarios.exigir(conexion, VER_COSTOS)
+    alicuotas = {a.id: a.porcentaje for a in repo_alicuota.listar(conexion)}
+    margenes: dict[int, Decimal | None] = {}
+    for categoria in repo_categoria.listar(conexion, solo_activas=False):
+        costos = repo_producto.ultimos_costos(conexion, categoria.id)
+        for producto in repo_producto.listar(
+            conexion, categoria_id=categoria.id, solo_activos=False, limite=1_000_000
+        ):
+            costo = costos.get(producto.id)
+            margenes[producto.id] = (
+                None
+                if costo is None
+                else margen_resultante(
+                    producto.precio_venta_usd, alicuotas[producto.alicuota_iva_id], costo
+                )
+            )
+    return margenes
 
 
 def guardar_categoria(conexion: sqlite3.Connection, categoria: Categoria) -> int:

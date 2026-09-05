@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -38,6 +39,7 @@ from minimarket.dominio.venta import BS, MEDIOS, MONEDAS, Cliente, LineaVenta, V
 from minimarket.servicios import ErrorServicio, usuario_actual
 from minimarket.servicios import caja as servicio_caja
 from minimarket.servicios import catalogo
+from minimarket.servicios import reportes as servicio_reportes
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.servicios import usuarios as servicio_usuarios
 from minimarket.servicios import venta as servicio_venta
@@ -662,12 +664,22 @@ class DialogoCierre(QDialog):
         self.conexion = conexion
         self.sesion_id = sesion_id
         self.setWindowTitle("Cerrar caja")
-        self.resize(620, 420)
+        self.resize(760, 480)
 
         self.tabla = QTableWidget(0, len(COLUMNAS_ARQUEO))
         self.tabla.setHorizontalHeaderLabels(COLUMNAS_ARQUEO)
         self.tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+
+        # Pedido del cliente (1.2.0): al cerrar, ver que se vendio y por donde
+        # entro la plata, no solo el arqueo.
+        self.vendido = QTableWidget(0, 3)
+        self.vendido.setHorizontalHeaderLabels(["Producto", "Cantidad", "Total USD"])
+        self.vendido.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.vendido.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.cobrado = QLabel()
+        self.cobrado.setWordWrap(True)
+        self._pintar_vendido()
 
         self.conteo_bs = QLineEdit("0")
         self.conteo_bs.textChanged.connect(self._pintar)
@@ -687,13 +699,39 @@ class DialogoCierre(QDialog):
         formulario.addRow("Efectivo contado en Bs:", self.conteo_bs)
         formulario.addRow("Efectivo contado en USD:", self.conteo_usd)
 
+        arqueo = QWidget()
+        adentro = QVBoxLayout(arqueo)
+        adentro.addWidget(self.tabla)
+        adentro.addLayout(formulario)
+        vendido = QWidget()
+        adentro = QVBoxLayout(vendido)
+        adentro.addWidget(self.vendido)
+        adentro.addWidget(self.cobrado)
+        pestanas = QTabWidget()
+        pestanas.addTab(arqueo, "Arqueo")
+        pestanas.addTab(vendido, "Que se vendio")
+
         disposicion = QVBoxLayout(self)
         disposicion.addWidget(self.resumen)
-        disposicion.addWidget(self.tabla)
-        disposicion.addLayout(formulario)
+        disposicion.addWidget(pestanas)
         disposicion.addWidget(botones)
 
         self._pintar()
+
+    def _pintar_vendido(self) -> None:
+        from minimarket.ui.reportes import reporte_venta_del_dia
+
+        try:
+            dia = servicio_reportes.resumen_de_sesion(self.conexion, self.sesion_id)
+        except ErrorServicio as error:
+            self.cobrado.setText(str(error))
+            return
+        reporte = reporte_venta_del_dia(dia)
+        self.vendido.setRowCount(len(reporte.filas))
+        for numero, fila in enumerate(reporte.filas):
+            for columna, texto in enumerate(fila):
+                self.vendido.setItem(numero, columna, QTableWidgetItem(texto))
+        self.cobrado.setText("\n".join(reporte.pie))
 
     def _conteos(self) -> tuple[Decimal, Decimal]:
         return (

@@ -30,9 +30,9 @@ from minimarket.datos.conexion import abrir
 from minimarket.datos.repositorios import perdida as repo_perdida
 from minimarket.dominio.compra import Compra, LineaCompra, Proveedor
 from minimarket.dominio.producto import Categoria, Producto
-from minimarket.dominio.reportes import ALQUILER
+from minimarket.dominio.reportes import ALQUILER, FIJO, OTROS, PORCENTAJE, SERVICIOS
 from minimarket.dominio.usuario import CAJERO, Usuario
-from minimarket.dominio.venta import EFECTIVO, Venta
+from minimarket.dominio.venta import EFECTIVO, PUNTO, Venta
 from minimarket.infra import rutas
 from minimarket.servicios import caja as servicio_caja
 from minimarket.servicios import catalogo as servicio_catalogo
@@ -204,7 +204,7 @@ def _ventas(conexion, productos: dict[str, int]) -> None:
     """La caja del dia queda ABIERTA: el ejercicio es cerrarla (RF-43)."""
     servicio_caja.abrir(conexion, inicial_bs=Decimal(2000), inicial_usd=Decimal(20))
     nombres = [fila[0] for fila in PRODUCTOS]
-    for canasta in VENTAS:
+    for numero, canasta in enumerate(VENTAS):
         venta = Venta(usuario_id=1, tasa=TASA)
         venta.lineas = [
             servicio_venta.nueva_linea(
@@ -212,9 +212,8 @@ def _ventas(conexion, productos: dict[str, int]) -> None:
             )
             for indice, cantidad in canasta
         ]
-        venta.pagos = [
-            servicio_venta.pago(EFECTIVO, "USD", venta.total_usd, TASA)
-        ]
+        medio = PUNTO if numero % 2 else EFECTIVO  # la mitad por punto
+        venta.pagos = [servicio_venta.pago(medio, "USD", venta.total_usd, TASA)]
         servicio_venta.registrar_venta(conexion, venta)
 
 
@@ -227,7 +226,16 @@ def _perdida_y_gasto(conexion, productos: dict[str, int]) -> None:
         motivo.id,
         observacion="Recorte del extremo",
     )
-    servicio_gastos.registrar(conexion, ALQUILER, "Alquiler del local", Decimal(350))
+    # Gastos de todos los meses (1.2.0): un fijo y una comision por punto.
+    servicio_gastos.registrar_recurrente(
+        conexion, ALQUILER, "Alquiler del local", FIJO, monto_usd=Decimal(350)
+    )
+    servicio_gastos.registrar_recurrente(
+        conexion, SERVICIOS, "Comision del punto de venta", PORCENTAJE,
+        porcentaje=Decimal(3), medio=PUNTO,
+    )
+    # Y uno suelto, de este mes nada mas.
+    servicio_gastos.registrar(conexion, OTROS, "Reparacion de la nevera", Decimal(60))
 
 
 def _en_dias(fecha: str, dias: int) -> str:
