@@ -178,3 +178,14 @@ def test_los_dialogos_de_carga_registran_de_verdad(aplicacion, base_demo, monkey
     assert servicio_inventario.existencia(base_demo, harina.id) == antes + 20
 
     assert avisos == [], avisos
+
+
+def test_el_inicio_dice_si_los_margenes_cubren_los_gastos(aplicacion, base_demo):
+    """El panel nuevo: con la demo hay ventas y un alquiler de 350 USD."""
+    from minimarket.ui.inicio import PantallaInicio
+
+    pantalla = PantallaInicio(base_demo)
+    assert "cubren los gastos" in pantalla.equilibrio_titulo.title()
+    assert "margen bruto" in pantalla.equilibrio_margen.text()
+    veredicto = pantalla.equilibrio_veredicto.text()
+    assert "Al mismo ritmo" in veredicto and "USD" in veredicto

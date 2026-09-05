@@ -61,6 +61,54 @@ def registrar(
     return repo_gasto.obtener(conexion, identificador)
 
 
+def repetir_mes_anterior(
+    conexion: sqlite3.Connection, periodo: str | None = None
+) -> list[GastoOperativo]:
+    """Copia al mes los gastos del mes anterior: alquiler, sueldos, servicios.
+
+    Pedido del cliente: los gastos fijos son los mismos todos los meses y
+    cargarlos uno por uno cada mes es lo que hace que no se carguen. Se copian
+    con el mismo monto; el que cambio se corrige despues. Si el mes ya tiene
+    gastos, no se copia nada: repetir dos veces duplicaria el alquiler.
+    """
+    usuario_id = usuario_actual()
+    servicio_usuarios.exigir(conexion, REGISTRAR_GASTOS, usuario_id)
+    periodo = (periodo or servicio_tasa.hoy()[:7]).strip()
+    if not PERIODO.match(periodo):
+        raise ErrorGasto("El periodo se escribe como AAAA-MM, por ejemplo 2026-08.")
+    if repo_gasto.listar(conexion, periodo, periodo):
+        raise ErrorGasto(
+            f"El mes {periodo} ya tiene gastos cargados. Se repite solo sobre "
+            "un mes vacio, para no duplicar el alquiler."
+        )
+    anterior = _mes_anterior(periodo)
+    origen = repo_gasto.listar(conexion, anterior, anterior)
+    if not origen:
+        raise ErrorGasto(f"El mes {anterior} no tiene gastos para repetir.")
+    hoy = servicio_tasa.hoy()
+    with transaccion(conexion):
+        creados = [
+            repo_gasto.crear(
+                conexion,
+                GastoOperativo(
+                    categoria=gasto.categoria,
+                    descripcion=gasto.descripcion,
+                    monto_usd=gasto.monto_usd,
+                    periodo=periodo,
+                    fecha=hoy,
+                    usuario_id=usuario_id,
+                ),
+            )
+            for gasto in origen
+        ]
+    return [repo_gasto.obtener(conexion, identificador) for identificador in creados]
+
+
+def _mes_anterior(periodo: str) -> str:
+    anio, mes = int(periodo[:4]), int(periodo[5:])
+    return f"{anio - 1}-12" if mes == 1 else f"{anio}-{mes - 1:02d}"
+
+
 def listar(
     conexion: sqlite3.Connection,
     desde_periodo: str | None = None,

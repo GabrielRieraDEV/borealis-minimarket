@@ -9,8 +9,10 @@ El cajero no ve ganancias ni costos (RF-58); lo unico que le queda es el cierre
 de su propia sesion.
 """
 
+import calendar
 import sqlite3
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from minimarket.datos.repositorios import caja as repo_caja
@@ -18,6 +20,7 @@ from minimarket.datos.repositorios import inventario as repo_inventario
 from minimarket.datos.repositorios import reportes as repo_reportes
 from minimarket.dominio.inventario import ExistenciaProducto, SaldoLoteProducto
 from minimarket.dominio.reportes import (
+    Equilibrio,
     FilaGanancia,
     FilaPerdida,
     Libro,
@@ -34,6 +37,7 @@ from minimarket.dominio.venta import ResumenCierre
 from minimarket.servicios import ErrorServicio, caja, usuario_actual
 from minimarket.servicios import gastos as servicio_gastos
 from minimarket.servicios import perdidas as servicio_perdidas
+from minimarket.servicios import tasa as servicio_tasa
 from minimarket.servicios import usuarios as servicio_usuarios
 
 
@@ -134,6 +138,23 @@ def ganancia_real(
         costo_usd=costo,
         perdidas_usd=repo_reportes.total_perdidas(conexion, desde, hasta),
         gastos_usd=servicio_gastos.total(conexion, desde, hasta),
+    )
+
+
+def equilibrio_del_mes(
+    conexion: sqlite3.Connection, hoy: str | None = None
+) -> Equilibrio:
+    """Con lo vendido hasta hoy, ¿el mes cierra cubriendo los gastos?
+
+    Es RN-29 del 1 del mes a hoy, mas los dias para proyectar. Los gastos
+    salen del mes entero por la propia regla (no se prorratean).
+    """
+    hoy = hoy or servicio_tasa.hoy()
+    fecha = date.fromisoformat(hoy)
+    return Equilibrio(
+        resultado=ganancia_real(conexion, hoy[:8] + "01", hoy),
+        dias_transcurridos=fecha.day,
+        dias_del_mes=calendar.monthrange(fecha.year, fecha.month)[1],
     )
 
 

@@ -25,6 +25,7 @@ from minimarket.servicios import ErrorServicio
 from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import inventario as servicio_inventario
 from minimarket.servicios import perdidas as servicio_perdidas
+from minimarket.servicios import reportes as servicio_reportes
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import formato
 from minimarket.ui.estilo import ESTILO_BIEN, ESTILO_MAL
@@ -57,8 +58,18 @@ class PantallaInicio(QWidget):
         interior.addWidget(self.tasa)
         interior.addWidget(self.respaldo)
 
+        # Lo que el cliente pregunta todos los meses: ¿los margenes alcanzan?
+        self.equilibrio_titulo = QGroupBox()
+        self.equilibrio_margen = QLabel()
+        self.equilibrio_veredicto = QLabel()
+        self.equilibrio_veredicto.setWordWrap(True)
+        adentro = QVBoxLayout(self.equilibrio_titulo)
+        adentro.addWidget(self.equilibrio_margen)
+        adentro.addWidget(self.equilibrio_veredicto)
+
         disposicion = QVBoxLayout(self)
         disposicion.addWidget(estado)
+        disposicion.addWidget(self.equilibrio_titulo)
         disposicion.addWidget(self.titulo_reponer)
         disposicion.addWidget(self.titulo_vencer)
 
@@ -66,8 +77,25 @@ class PantallaInicio(QWidget):
 
     def refrescar(self) -> None:
         self._estado()
+        self._equilibrio()
         self._reponer()
         self._vencer()
+
+    def _equilibrio(self) -> None:
+        """¿Al ritmo de este mes, las ventas pagan los gastos?"""
+        try:
+            equilibrio = servicio_reportes.equilibrio_del_mes(self.conexion)
+        except ErrorServicio:
+            self.equilibrio_titulo.setVisible(False)
+            return
+        mes = _nombre_mes(equilibrio.resultado.desde)
+        self.equilibrio_titulo.setTitle(f"¿Los margenes cubren los gastos de {mes}?")
+        margen, veredicto, bien = _texto_equilibrio(equilibrio, mes)
+        self.equilibrio_margen.setText(margen)
+        self.equilibrio_veredicto.setText(veredicto)
+        self.equilibrio_veredicto.setStyleSheet(
+            "" if bien is None else (ESTILO_BIEN if bien else ESTILO_MAL)
+        )
 
     def _estado(self) -> None:
         vigente = servicio_tasa.tasa_del_dia(self.conexion)
@@ -123,6 +151,67 @@ class PantallaInicio(QWidget):
                 for f in filas
             ],
         )
+
+
+def _texto_equilibrio(equilibrio, mes: str) -> tuple[str, str, bool | None]:
+    """Dos renglones: que dejan las ventas, y si alcanza. Sin jerga contable."""
+    resultado = equilibrio.resultado
+    gastos = resultado.gastos_usd
+    if resultado.ingreso_usd <= 0:
+        return (
+            f"Todavia no hay ventas en {mes}.",
+            f"Gastos cargados: {formato(gastos)} USD."
+            if gastos > 0
+            else "Tampoco hay gastos cargados. Cargalos en Gastos (Ctrl+G).",
+            None,
+        )
+    margen = (
+        f"En {equilibrio.dias_transcurridos} dias se vendieron "
+        f"{formato(resultado.ingreso_usd)} USD y dejaron "
+        f"{formato(equilibrio.contribucion_usd)} USD: un margen bruto de "
+        f"{formato(equilibrio.margen_bruto_pct)} %."
+    )
+    if gastos <= 0:
+        return (
+            margen,
+            f"No hay gastos cargados para {mes}, asi que no se puede saber si "
+            "alcanzan. Cargalos en Gastos (Ctrl+G); si son los mismos del mes "
+            "pasado, ahi esta «Repetir los del mes anterior».",
+            None,
+        )
+    proyectado = equilibrio.resultado_proyectado_usd
+    if equilibrio.cubre:
+        return (
+            margen,
+            f"Al mismo ritmo, {mes} cierra con {formato(gastos)} USD de gastos "
+            f"pagados y {formato(proyectado)} USD de ganancia.",
+            True,
+        )
+    faltante = -proyectado
+    remedio = ""
+    if equilibrio.ventas_necesarias_usd is not None:
+        remedio = (
+            f" Para empatar hace falta vender {formato(equilibrio.ventas_necesarias_usd)} "
+            f"USD en el mes (van {formato(resultado.ingreso_usd)}), o llevar el "
+            f"margen bruto a {formato(equilibrio.margen_necesario_pct)} % "
+            "subiendo precios."
+        )
+    return (
+        margen,
+        f"Al mismo ritmo, {mes} cierra con {formato(faltante)} USD de gastos "
+        f"sin cubrir." + remedio,
+        False,
+    )
+
+
+MESES = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+    "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
+def _nombre_mes(fecha: str) -> str:
+    return MESES[int(fecha[5:7]) - 1]
 
 
 def _texto_respaldo(ultimo) -> str:

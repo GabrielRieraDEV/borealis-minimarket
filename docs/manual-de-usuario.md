@@ -50,8 +50,25 @@ La caja se atiende sin mouse. Desde cualquier pantalla:
 ![Pantalla de inicio](capturas/inicio.png)
 
 Lo primero que ve el administrador al entrar: la tasa de hoy, si el respaldo de
-ayer salió bien, qué productos hay que reponer y qué lotes están por vencer.
-Si algo aparece en rojo, hay que atenderlo.
+ayer salió bien, **si los márgenes cubren los gastos del mes**, qué productos
+hay que reponer y qué lotes están por vencer. Si algo aparece en rojo, hay que
+atenderlo.
+
+### ¿Los márgenes cubren los gastos?
+
+El panel toma lo vendido en el mes hasta hoy, le resta lo que costó esa
+mercadería y las pérdidas, y eso es lo que las ventas *dejaron* (el margen
+bruto). Lo proyecta al mes entero al mismo ritmo y lo compara con los gastos
+cargados en Gastos.
+
+- **Verde**: al ritmo actual el mes cierra con los gastos pagados y dice cuánto
+  queda de ganancia.
+- **Rojo**: dice cuánto falta y las dos formas de arreglarlo: cuánto hay que
+  vender en el mes, o a qué margen hay que llevar los precios vendiendo lo
+  mismo.
+
+Para que el número sirva, los gastos del mes tienen que estar cargados
+(sección «Gastos operativos»). Si no lo están, el panel lo avisa.
 
 ---
 
@@ -170,9 +187,19 @@ Reportes → *Cierre de caja*.
 4. **Confirmar compra**. La mercadería entra al inventario y el costo queda
    registrado.
 
-Si con el costo nuevo algún producto queda por debajo del margen objetivo, el
-sistema **avisa** al guardar, pero **no cambia ningún precio**. Los precios se
-recalculan aparte, desde Productos, y siempre con confirmación previa.
+### El sistema dice qué precio poner
+
+Cada producto tiene un **margen objetivo** (el suyo o el de su categoría). Al
+confirmar la compra, el sistema toma el costo que se acaba de pagar —el de
+*este* proveedor, en *esta* compra— y revisa si el precio de venta actual
+todavía deja ese margen. Si alguno quedó corto, muestra la lista con el precio
+que hoy tiene, el margen que deja y el **precio sugerido**, y ofrece **Aplicar
+los precios sugeridos** de una vez. Si se elige «Dejar como están», no toca
+nada y los precios se revisan después desde Productos.
+
+Los márgenes objetivo se fijan en Categorías (`F3`) para toda la categoría, o
+en Productos (`F2`) para uno en particular. El sistema no inventa el margen:
+calcula el precio que lo cumple con el costo real de la última compra.
 
 > **Anular una compra:** `Supr`. No se puede si ya se pagó o si parte de esa
 > mercadería ya se vendió; en ese caso la corrección es un ajuste o una pérdida.
@@ -235,6 +262,28 @@ pérdida por vencimiento, sin tener que cargar la cantidad a mano.
 los movimientos. **No se puede escribir a mano**: si el conteo físico no
 coincide, se usa **Ajustar por conteo físico (`F7`)**, que registra la
 diferencia como un movimiento más y deja constancia de quién la hizo.
+
+---
+
+## Gastos operativos
+
+**`Ctrl+G` · solo administrador**
+
+Alquiler, sueldos, luz, internet, todo lo que se paga aunque no se venda nada.
+Van **por mes**: el alquiler de septiembre es de septiembre aunque se pague en
+octubre. Se restan del resultado del mes entero; no se reparten entre
+productos.
+
+- **Registrar gasto (`Ins`)**: categoría, descripción, monto en USD y el mes al
+  que corresponde.
+- **Repetir los del mes anterior**: copia al mes actual todos los gastos del
+  mes pasado con el mismo monto. Es lo normal a principio de mes; después se
+  registra de nuevo el que haya cambiado. Solo funciona si el mes todavía no
+  tiene gastos, para no duplicar el alquiler.
+
+Con los gastos cargados, la pantalla de inicio dice si las ventas del mes los
+están cubriendo, y el reporte de **Ganancia real** muestra el resultado al
+cerrar.
 
 ---
 

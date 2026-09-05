@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-288 pruebas.
+295 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -422,6 +422,25 @@ Resueltas en la Fase 6:
   el punto de venta, y con cuatro en la ventana de la tasa, que es como la
   publica el BCV. Se sigue guardando con seis (principio de precisión).
   Mostrar «210.500000» en la barra era ruido.
+
+Después de la entrega (1.1.0), a pedido del cliente:
+
+- **`dominio/reportes.Equilibrio`**: ¿los márgenes cubren los gastos del mes?
+  RN-29 responde después de cerrar el mes; esto responde durante, proyectando
+  linealmente lo que las ventas dejaron (bruta − pérdidas) por días
+  transcurridos contra días del mes, y comparando con los gastos del mes
+  entero (que RN-29 no prorratea). Da dos remedios cuando no alcanza: ventas
+  necesarias con el margen actual, o margen necesario con las ventas
+  proyectadas. Vive en la pantalla de Inicio. Es un `ResultadoPeriodo` más
+  dos enteros; no hay tabla nueva.
+- **`gastos.repetir_mes_anterior`**: copia los gastos del mes anterior al mes
+  indicado. Se niega si el mes ya tiene gastos (duplicaría el alquiler) o si
+  el anterior está vacío. Los gastos siguen siendo por mes; esto solo evita
+  cargarlos a mano.
+- **El aviso de margen de la compra ahora aplica**: `ui/compras._avisar_margenes`
+  ofrece «Aplicar los precios sugeridos» y pasa por `catalogo.aplicar_recalculo`,
+  con lo que queda en la bitácora como cualquier cambio de precio. Antes era
+  informativo y el cliente no encontraba dónde aplicar lo sugerido.
 
 Pendientes:
 

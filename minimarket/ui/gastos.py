@@ -26,7 +26,7 @@ from minimarket.dominio.reportes import CATEGORIAS_GASTO, GastoOperativo
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import gastos as servicio_gastos
 from minimarket.servicios import tasa as servicio_tasa
-from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, formato
+from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
 
 COLUMNAS = ["Periodo", "Categoria", "Descripcion", "Monto USD", "Fecha de carga"]
 
@@ -55,8 +55,15 @@ class PantallaGastos(QWidget):
 
         boton = QPushButton("&Registrar gasto (Ins)")
         boton.clicked.connect(self.registrar)
+        repetir = QPushButton("Repetir los del &mes anterior")
+        repetir.setToolTip(
+            "Copia a este mes el alquiler, los sueldos y los servicios del mes "
+            "pasado, con el mismo monto. Despues se corrige el que cambio."
+        )
+        repetir.clicked.connect(self.repetir)
         botones = QHBoxLayout()
         botones.addWidget(boton)
+        botones.addWidget(repetir)
         botones.addStretch()
 
         filtros = QHBoxLayout()
@@ -69,8 +76,9 @@ class PantallaGastos(QWidget):
         disposicion = QVBoxLayout(self)
         disposicion.addWidget(
             QLabel(
-                "Los gastos se restan del resultado global del periodo y NO se "
-                "prorratean entre productos (RN-29)."
+                "Los gastos van por mes: el alquiler de septiembre es de "
+                "septiembre aunque se pague en octubre. Se cargan cada mes, o "
+                "se repiten los del anterior con un clic."
             )
         )
         disposicion.addLayout(filtros)
@@ -109,6 +117,28 @@ class PantallaGastos(QWidget):
     def registrar(self) -> None:
         if DialogoGasto(self.conexion, self).exec() == QDialog.Accepted:
             self.refrescar()
+
+    def repetir(self) -> None:
+        """Los gastos fijos son los mismos todos los meses."""
+        mes = servicio_tasa.hoy()[:7]
+        if not confirmar(
+            self,
+            f"Se van a copiar a {mes} los gastos del mes anterior, con el "
+            "mismo monto. ¿Seguimos?",
+        ):
+            return
+        try:
+            copiados = servicio_gastos.repetir_mes_anterior(self.conexion, mes)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        avisar(
+            self,
+            f"Se cargaron {len(copiados)} gastos en {mes}. Si alguno cambio de "
+            "monto, registralo de nuevo con el valor correcto.",
+            "Gastos repetidos",
+        )
+        self.refrescar()
 
 
 class DialogoGasto(QDialog):

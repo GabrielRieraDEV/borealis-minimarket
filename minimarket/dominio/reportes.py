@@ -157,6 +157,83 @@ class ResultadoPeriodo:
         )
 
 
+@dataclass(frozen=True)
+class Equilibrio:
+    """¿Los margenes puestos alcanzan para pagar los gastos del mes?
+
+    Pedido del cliente despues de la entrega. RN-29 responde DESPUES de cerrar
+    el mes; esto responde durante: con lo vendido hasta hoy y su margen, al
+    mismo ritmo, ¿el mes cierra cubriendo los gastos? Y si no, ¿cuanto mas hay
+    que vender, o a que margen hay que llevar los precios?
+
+    `resultado` es el del 1 del mes a hoy. Sus gastos son los del mes entero,
+    porque RN-29 no prorratea: el alquiler de septiembre se debe completo
+    aunque sea 4 de septiembre. Lo que se proyecta es lo que las ventas
+    dejan (ganancia bruta menos perdidas), no los gastos.
+
+    La proyeccion es lineal, dias transcurridos contra dias del mes. Un
+    minimarket vende parecido todos los dias; si un dia cambia el ritmo, el
+    numero se mueve solo al dia siguiente.
+    """
+
+    resultado: ResultadoPeriodo
+    dias_transcurridos: int
+    dias_del_mes: int
+
+    @property
+    def contribucion_usd(self) -> Decimal:
+        """Lo que las ventas dejaron para pagar gastos: bruta menos perdidas."""
+        return self.resultado.ganancia_bruta_usd - self.resultado.perdidas_usd
+
+    @property
+    def margen_bruto_pct(self) -> Decimal | None:
+        """Cuanto de cada dolar vendido queda para gastos y ganancia."""
+        if self.resultado.ingreso_usd <= 0:
+            return None
+        return redondear(
+            self.contribucion_usd / self.resultado.ingreso_usd * 100,
+            DECIMALES_PORCENTAJE,
+        )
+
+    def _proyectar(self, monto: Decimal) -> Decimal:
+        return redondear(monto / self.dias_transcurridos * self.dias_del_mes, 2)
+
+    @property
+    def ingreso_proyectado_usd(self) -> Decimal:
+        return self._proyectar(self.resultado.ingreso_usd)
+
+    @property
+    def contribucion_proyectada_usd(self) -> Decimal:
+        return self._proyectar(self.contribucion_usd)
+
+    @property
+    def resultado_proyectado_usd(self) -> Decimal:
+        """Con lo que va del mes, asi cerraria. Negativo: no cubre."""
+        return self.contribucion_proyectada_usd - self.resultado.gastos_usd
+
+    @property
+    def cubre(self) -> bool:
+        return self.resultado_proyectado_usd >= 0
+
+    @property
+    def ventas_necesarias_usd(self) -> Decimal | None:
+        """Cuanto hay que vender en el mes, con el margen actual, para empatar."""
+        margen = self.margen_bruto_pct
+        if margen is None or margen <= 0:
+            return None
+        return redondear(self.resultado.gastos_usd / margen * 100, 2)
+
+    @property
+    def margen_necesario_pct(self) -> Decimal | None:
+        """A que margen bruto hay que llevar los precios, vendiendo lo mismo."""
+        if self.ingreso_proyectado_usd <= 0:
+            return None
+        return redondear(
+            self.resultado.gastos_usd / self.ingreso_proyectado_usd * 100,
+            DECIMALES_PORCENTAJE,
+        )
+
+
 # --- Libro de ventas (RF-52, RN-31) -----------------------------------------
 
 # El formato definitivo lo confirma el contador del cliente (clausula 6.7 del

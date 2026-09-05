@@ -383,21 +383,46 @@ class DialogoCompra(QDialog):
         self.accept()
 
     def _avisar_margenes(self, avisos: list[compras.AvisoMargen]) -> None:
-        """El nuevo costo dejo precios cortos. Se informa; no se toca nada."""
+        """El nuevo costo dejo precios cortos: se ofrece aplicar los sugeridos.
+
+        Pedido del cliente: que el sistema diga que precio poner segun como
+        se compro. El precio sugerido ya salia en el aviso; lo que faltaba era
+        poder aplicarlo ahi mismo en vez de ir producto por producto. Pasa por
+        `aplicar_recalculo`, asi que queda en la bitacora como cualquier
+        cambio de precio (RF-59).
+        """
         detalle = "\n".join(
-            f"· {aviso.producto.nombre}: margen "
-            f"{formato(aviso.margen_actual)} % contra un objetivo de "
-            f"{formato(aviso.margen_objetivo)} %. "
-            f"Precio sugerido {formato(aviso.precio_sugerido_usd, 4)} USD."
+            f"· {aviso.producto.nombre}: hoy "
+            f"{formato(aviso.producto.precio_venta_usd, 4)} USD deja "
+            f"{formato(aviso.margen_actual)} % (objetivo "
+            f"{formato(aviso.margen_objetivo)} %). Sugerido: "
+            f"{formato(aviso.precio_sugerido_usd, 4)} USD."
             for aviso in avisos
         )
-        QMessageBox.information(
-            self,
+        caja = QMessageBox(
+            QMessageBox.Question,
             "Precios por debajo del margen",
-            "Con el costo recien cargado, estos productos quedaron por debajo "
-            "de su margen objetivo:\n\n"
-            f"{detalle}\n\nRevisalos en la pantalla de productos.",
+            "Con el costo recien pagado, estos productos quedaron por debajo "
+            f"de su margen objetivo:\n\n{detalle}\n\n"
+            "¿Aplicar los precios sugeridos a todos?",
+            parent=self,
         )
+        aplicar = caja.addButton(
+            "Aplicar los precios sugeridos", QMessageBox.AcceptRole
+        )
+        caja.addButton("Dejar como estan", QMessageBox.RejectRole)
+        caja.exec()
+        if caja.clickedButton() is not aplicar:
+            return
+        try:
+            cuantos = catalogo.aplicar_recalculo(
+                self.conexion,
+                [(aviso.producto, aviso.precio_sugerido_usd) for aviso in avisos],
+            )
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        avisar(self, f"Se actualizaron {cuantos} precios.", "Precios aplicados")
 
 
 class DialogoPago(QDialog):
