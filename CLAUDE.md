@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-300 pruebas.
+301 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -476,6 +476,12 @@ Después de la entrega (1.2.0), a pedido del cliente:
   `resumen_de_sesion` (REPORTE_CIERRE, sesión propia para el cajero) arman
   el mismo `VentaDelDia`, y `ui/reportes.reporte_venta_del_dia` lo dibuja
   igual en Reportes y en la pestaña «Qué se vendió» del cierre.
+- **La ficha del producto sugiere el precio al escribir el costo (1.2.1)**:
+  campo «Costo de compra» que NO se guarda; solo alimenta
+  `precio_desde_margen` en vivo con el margen aplicable (RN-09) y avisa si
+  ese margen está bajo el piso. El costo real sigue siendo el de la compra
+  (RN-07): la ficha no toca el flujo de compras ni la vista `v_ultimo_costo`.
+  Guardar un costo en `producto` habría creado dos fuentes de verdad.
 - **Los nombres de los reportes ya no llevan «(RF-xx)»**: los códigos están
   en los docstrings, que es donde le sirven a quien programa.
 

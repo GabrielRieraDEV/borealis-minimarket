@@ -222,3 +222,31 @@ def test_las_pantallas_nuevas_de_la_1_2_0(aplicacion, base_demo):
     cierre = DialogoCierre(base_demo, sesion.id)
     assert cierre.vendido.rowCount() > 0
     assert "Punto" in cierre.cobrado.text()
+
+
+def test_la_ficha_sugiere_el_precio_al_escribir_el_costo(aplicacion, base_demo):
+    """Producto nuevo: sin compras todavia, pero con el costo escrito a mano."""
+    from decimal import Decimal
+
+    from minimarket.ui.productos import DialogoProducto
+
+    ficha = DialogoProducto(base_demo, None)
+    assert "Escribi el costo" in ficha.sugerencia.text()
+    ficha.categoria.setCurrentIndex(ficha.categoria.findText("Viveres"))  # 30 %
+    ficha.alicuota.setCurrentIndex(ficha.alicuota.findData(2))  # general, 16 %
+    ficha.costo.setText("1,00")
+    # 1,00 × 1,30 = 1,30 de base; + 16 % de IVA = 1,5080
+    assert ficha.precio_sugerido == Decimal("1.5080")
+    assert "Precio sugerido: 1.5080 USD (margen de Viveres, 30.00 %)" in ficha.sugerencia.text()
+    ficha.calcular_precio()
+    assert ficha.precio.text() == "1.5080"
+    # Un margen propio pisa al de la categoria.
+    ficha.margen.setText("50")
+    assert ficha.precio_sugerido == Decimal("1.7400")
+
+    # Producto existente: el costo se llena con el de la ultima compra.
+    from minimarket.datos.repositorios import producto as repo_producto
+
+    harina = repo_producto.por_codigo_barras(base_demo, "7591001000018")
+    ficha = DialogoProducto(base_demo, harina)
+    assert ficha.costo.text() != "" and ficha.precio_sugerido is not None

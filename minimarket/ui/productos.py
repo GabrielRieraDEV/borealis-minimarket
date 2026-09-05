@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from minimarket.dominio.impuestos import precio_desde_margen
 from minimarket.dominio.producto import Producto, precio_publico_bs
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo, tasa as servicio_tasa
@@ -409,6 +410,11 @@ class DialogoProducto(QDialog):
             )
         self.margen = QLineEdit()
         self.margen.setPlaceholderText("Vacio: usa el margen de la categoria")
+        # Pedido del cliente (1.2.1): que la ficha diga a cuanto vender. El
+        # costo se escribe aca para calcular; el costo real del sistema sigue
+        # siendo el de la compra (RN-07), esto no se guarda.
+        self.costo = QLineEdit()
+        self.costo.setPlaceholderText("Lo que te cuesta la unidad, para sugerir el precio")
         self.precio = QLineEdit()
         self.existencia_minima = QLineEdit("0")
         self.maneja_vencimiento = QCheckBox("Controla fecha de vencimiento")
@@ -416,10 +422,15 @@ class DialogoProducto(QDialog):
         self.dias_alerta.setRange(0, 365)
         self.dias_alerta.setValue(15)
 
+        self.sugerencia = QLabel()
+        self.sugerencia.setWordWrap(True)
+        self.sugerencia.setObjectName("etiquetaCampo")
         self.informacion = QLabel()
         self.informacion.setWordWrap(True)
+        self.precio_sugerido: Decimal | None = None
+        self.piso = self._piso()
 
-        boton_calcular = QPushButton("Calcular precio desde el &margen (F9)")
+        boton_calcular = QPushButton("&Usar el precio sugerido (F9)")
         boton_calcular.clicked.connect(self.calcular_precio)
         QShortcut(QKeySequence(Qt.Key_F9), self, self.calcular_precio)
 
@@ -437,22 +448,90 @@ class DialogoProducto(QDialog):
         formulario.addRow("Categoria:", self.categoria)
         formulario.addRow("Alicuota de IVA:", self.alicuota)
         formulario.addRow("Margen objetivo (%):", self.margen)
+        formulario.addRow("Costo de compra USD:", self.costo)
         formulario.addRow("Precio de venta USD (con IVA):", self.precio)
         formulario.addRow("Existencia minima:", self.existencia_minima)
         formulario.addRow("", self.maneja_vencimiento)
         formulario.addRow("Dias de aviso de vencimiento:", self.dias_alerta)
 
+        # La sugerencia va fuera del formulario: dentro de una fila se corta.
         disposicion = QVBoxLayout(self)
         disposicion.addLayout(formulario)
+        disposicion.addWidget(self.sugerencia)
         disposicion.addWidget(boton_calcular)
         disposicion.addWidget(self.informacion)
         disposicion.addWidget(botones)
+        self.setMinimumWidth(620)
 
         if producto is not None:
             self._cargar(producto)
+        for campo in (self.costo, self.margen):
+            campo.textChanged.connect(self.actualizar_sugerencia)
+        self.categoria.currentIndexChanged.connect(self.actualizar_sugerencia)
+        self.alicuota.currentIndexChanged.connect(self.actualizar_sugerencia)
         self.precio.textChanged.connect(self.actualizar_informacion)
         self.alicuota.currentIndexChanged.connect(self.actualizar_informacion)
+        self.actualizar_sugerencia()
         self.actualizar_informacion()
+        if producto is None:
+            self.nombre.setFocus()
+
+    def _piso(self) -> Decimal | None:
+        """El margen minimo del negocio, si se puede calcular; None si no."""
+        try:
+            sugerido = servicio_reportes.margen_sugerido(self.conexion)
+        except ErrorServicio:
+            return None
+        return sugerido.piso_pct if sugerido is not None else None
+
+    def _margen_aplicable(self) -> tuple[Decimal | None, str]:
+        """RN-09: el del producto si lo tiene; si no, el de la categoria."""
+        try:
+            propio = a_decimal(self.margen.text(), "el margen objetivo", opcional=True)
+        except ErrorDeCampo:
+            return None, ""
+        if propio is not None:
+            return propio, "margen propio"
+        for categoria in catalogo.listar_categorias(self.conexion, solo_activas=False):
+            if categoria.id == self.categoria.currentData():
+                return categoria.margen_objetivo, f"margen de {categoria.nombre}"
+        return None, ""
+
+    def actualizar_sugerencia(self) -> None:
+        """Precio sugerido en vivo: costo × (1 + margen) + IVA (RN-09)."""
+        self.precio_sugerido = None
+        try:
+            costo = a_decimal(self.costo.text(), "el costo", opcional=True)
+        except ErrorDeCampo:
+            self.sugerencia.setText("El costo tiene que ser un numero.")
+            return
+        if costo is None or costo <= 0:
+            self.sugerencia.setText(
+                "Escribi el costo y el precio sugerido aparece aca."
+            )
+            return
+        margen, origen = self._margen_aplicable()
+        if margen is None:
+            self.sugerencia.setText("Elegi una categoria para saber el margen.")
+            return
+        alicuota = next(
+            (a.porcentaje for a in catalogo.listar_alicuotas(self.conexion)
+             if a.id == self.alicuota.currentData()),
+            Decimal(0),
+        )
+        self.precio_sugerido = precio_desde_margen(costo, margen, alicuota)
+        texto = (
+            f"Precio sugerido: {formato(self.precio_sugerido, 4)} USD "
+            f"({origen}, {formato(margen)} %)."
+        )
+        if self.piso is not None and margen < self.piso:
+            con_piso = precio_desde_margen(costo, self.piso, alicuota)
+            texto += (
+                f" Ojo: ese margen esta por debajo del minimo del negocio "
+                f"({formato(self.piso)} %); con el minimo seria "
+                f"{formato(con_piso, 4)} USD."
+            )
+        self.sugerencia.setText(texto)
 
     def _cargar(self, producto: Producto) -> None:
         self.nombre.setText(producto.nombre)
@@ -463,6 +542,12 @@ class DialogoProducto(QDialog):
         if producto.margen_objetivo is not None:
             self.margen.setText(str(producto.margen_objetivo))
         self.precio.setText(str(producto.precio_venta_usd))
+        try:  # el ultimo costo real, si ya se compro y se puede ver
+            costo = catalogo.ultimo_costo(self.conexion, producto.id)
+            if costo is not None:
+                self.costo.setText(str(costo))
+        except ErrorServicio:
+            pass
         self.existencia_minima.setText(str(producto.existencia_minima))
         self.maneja_vencimiento.setChecked(producto.maneja_vencimiento)
         self.dias_alerta.setValue(producto.dias_alerta_venc)
@@ -488,21 +573,16 @@ class DialogoProducto(QDialog):
         )
 
     def calcular_precio(self) -> None:
-        """RF-07. Precio con IVA a partir del margen objetivo aplicable."""
-        try:
-            producto = self._leer()
-        except ErrorDeCampo as error:
-            avisar(self, str(error))
-            return
-        sugerido = catalogo.calcular_precio(self.conexion, producto)
-        if sugerido is None:
+        """RF-07. Copia al precio el sugerido que se ve arriba."""
+        if self.precio_sugerido is None:
             avisar(
                 self,
-                "Todavia no hay un costo de compra registrado para este producto, "
-                "asi que no se puede calcular el precio. Cargalo a mano.",
+                "Escribi el costo de compra para que el sistema sugiera el "
+                "precio; sin costo no hay de donde calcularlo.",
             )
+            self.costo.setFocus()
             return
-        self.precio.setText(str(sugerido))
+        self.precio.setText(str(self.precio_sugerido))
 
     def actualizar_informacion(self) -> None:
         """Costo vigente, margen que deja el precio cargado y su valor en Bs.

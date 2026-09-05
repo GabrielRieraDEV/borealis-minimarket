@@ -349,6 +349,20 @@ competir con el negocio de la esquina. Eso lo sabe el dueño, y el lugar para
 decirlo es el margen objetivo de cada categoría (`F3`) o de cada producto
 (`F2`). El sugerido es el piso; de ahí para arriba, cada uno decide.
 
+### Al cargar un producto nuevo
+
+En la ficha del producto (`F2` → Nuevo) hay un campo **Costo de compra**. Se
+escribe lo que cuesta la unidad y el sistema muestra en el acto el **precio
+sugerido** con el margen de la categoría (o el propio, si se cargó), más IVA.
+**Usar el precio sugerido (F9)** lo copia al precio de venta. Si ese margen
+está por debajo del mínimo del negocio, lo avisa y dice cuánto sería con el
+mínimo.
+
+Ese costo es solo para calcular: **no se guarda**. El costo real del producto
+es el de la compra, cuando se registre en `F8`; si resultó distinto del que se
+escribió, el sistema vuelve a sugerir el precio al confirmar la compra. En un
+producto que ya se compró, el campo aparece lleno con el último costo.
+
 ### En Productos
 
 La columna **Margen %** muestra qué margen deja hoy el precio de cada
