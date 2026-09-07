@@ -12,7 +12,7 @@ TABLAS = {
     "tasa_cambio",
     "proveedor", "compra", "compra_detalle", "pago_proveedor",
     "movimiento_inventario", "motivo_perdida", "perdida", "ajuste_inventario",
-    "caja_sesion", "cliente", "venta", "venta_detalle", "venta_pago",
+    "caja_sesion", "cliente", "venta", "venta_detalle", "venta_pago", "venta_vuelto",
     "gasto_operativo",
     "gasto_recurrente",
 }
@@ -34,9 +34,9 @@ def nombres(conexion, tipo):
 
 
 class TestApertura:
-    def test_crea_las_24_tablas(self, conexion):
+    def test_crea_las_25_tablas(self, conexion):
         assert nombres(conexion, "table") - {"sqlite_sequence"} == TABLAS
-        assert len(TABLAS) == 24  # 23 del modelo + gasto_recurrente (1.2.0)
+        assert len(TABLAS) == 25  # 23 del modelo + gasto_recurrente (1.2.0) + venta_vuelto (1.3.0)
 
     def test_crea_las_vistas(self, conexion):
         assert nombres(conexion, "view") == {"v_existencia", "v_ultimo_costo"}

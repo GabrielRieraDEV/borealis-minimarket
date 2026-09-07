@@ -25,6 +25,7 @@ from minimarket.dominio.inventario import (
 )
 from minimarket.dominio.usuario import ANULAR_VENTAS, VENDER
 from minimarket.dominio.venta import (
+    MEDIOS_VUELTO,
     COMPLETADA,
     MEDIOS,
     MONEDAS,
@@ -134,6 +135,15 @@ def registrar_venta(
     _validar_lineas(venta)
     _validar_existencias(conexion, venta, autorizado_por)
     _validar_pagos(venta)
+    if venta.vuelto_usd > 0:
+        if venta.vuelto_por_declarar_usd < 0:
+            raise ErrorVenta(
+                "Lo declarado como vuelto supera el vuelto de la venta "
+                f"({venta.vuelto_usd} USD)."
+            )
+        # RN-23: lo que el cajero no reparta sale en efectivo en bolivares.
+        venta.completar_vuelto(servicio_tasa.multiplo_redondeo(conexion))
+    _validar_vueltos(venta)
 
     with transaccion(conexion):
         venta.numero = repo_venta.siguiente_numero(conexion)  # RN-24
@@ -144,6 +154,8 @@ def registrar_venta(
             repo_venta.agregar_linea(conexion, venta.id, linea)
         for cobro in venta.pagos:
             repo_venta.registrar_pago(conexion, venta.id, cobro)
+        for vuelto in venta.vueltos:
+            repo_venta.registrar_vuelto(conexion, venta.id, vuelto)
     return venta
 
 
@@ -347,6 +359,25 @@ def _validar_existencias(
         raise ErrorVenta(
             f"No hay existencia suficiente de «{nombre}»: quedan {disponible} "
             f"y se piden {cantidad}. Un administrador puede autorizar la venta."
+        )
+
+
+def _validar_vueltos(venta: Venta) -> None:
+    """RN-23 (1.3.0). El vuelto declarado tiene que ser el vuelto de la venta."""
+    if venta.vuelto_usd == 0 and venta.vueltos:
+        raise ErrorVenta("La venta no tiene vuelto que entregar.")
+    for vuelto in venta.vueltos:
+        if vuelto.medio not in MEDIOS_VUELTO:
+            raise ErrorVenta(
+                "El vuelto se entrega en efectivo, por pago movil o por "
+                "transferencia; por punto de venta no se puede devolver."
+            )
+        if vuelto.moneda not in MONEDAS or vuelto.monto <= 0:
+            raise ErrorVenta("El vuelto tiene que ser mayor que cero.")
+    if not venta.vuelto_cuadra:
+        raise ErrorVenta(
+            f"Lo declarado como vuelto no coincide con el vuelto de la venta "
+            f"({venta.vuelto_usd} USD)."
         )
 
 

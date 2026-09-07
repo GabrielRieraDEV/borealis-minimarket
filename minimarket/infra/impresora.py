@@ -78,13 +78,16 @@ def nota_de_entrega(
             _columnas(etiqueta, f"{_importe(cobro.monto)} {cobro.moneda}")
         )
     if venta.vuelto_usd > 0:
-        # RN-23: el vuelto se entrega en bolivares, ya redondeado.
-        lineas.append(
-            _columnas(
-                f"Vuelto ({_importe(venta.vuelto_usd)} USD)",
-                f"{_importe(venta.vuelto_bs(multiplo))} Bs",
+        # RN-23: en lo que salio. Una venta anterior a 1.3.0 no lo declara:
+        # salio en efectivo en bolivares, redondeado.
+        vueltos = venta.vueltos or [venta.vuelto_en("EFECTIVO", "BS", multiplo)]
+        for vuelto in vueltos:
+            etiqueta = "Vuelto " + (
+                "efectivo" if vuelto.es_efectivo
+                else vuelto.medio.replace("_", " ").lower()
             )
-        )
+            moneda = "Bs" if vuelto.moneda == "BS" else vuelto.moneda
+            lineas.append(_columnas(etiqueta, f"{_importe(vuelto.monto)} {moneda}"))
     lineas += [
         _separador(),
         _centrado("Este documento no es una factura"),

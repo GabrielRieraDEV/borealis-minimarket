@@ -256,3 +256,33 @@ def test_la_ficha_sugiere_el_precio_al_escribir_el_costo(aplicacion, base_demo):
     harina = repo_producto.por_codigo_barras(base_demo, "7591001000018")
     ficha = DialogoProducto(base_demo, harina)
     assert ficha.costo.text() != "" and ficha.precio_sugerido is not None
+
+
+def test_el_cobro_reparte_el_vuelto(aplicacion, base_demo):
+    """Paga 20 USD por 9,05; declara 10 USD en efectivo; el resto sale en Bs."""
+    from decimal import Decimal
+
+    from minimarket.dominio.venta import EFECTIVO, USD
+    from minimarket.servicios import venta as servicio_venta
+    from minimarket.ui.venta import DialogoCobro, PantallaVenta
+
+    pantalla = PantallaVenta(base_demo)
+    for entrada in ("7591001000018", "2*7591003000016", "0.750*7591002000017"):
+        pantalla.codigo.setText(entrada)
+        pantalla.agregar()
+    venta = pantalla._venta_en_curso()
+    cobro = DialogoCobro(venta)
+    assert not cobro.grupo_vuelto.isVisibleTo(cobro)  # sin pagos, sin vuelto
+    cobro.pagos.append(servicio_venta.pago(EFECTIVO, USD, Decimal(20), venta.tasa))
+    venta.pagos = cobro.pagos
+    cobro._pintar()
+    assert cobro.grupo_vuelto.isVisibleTo(cobro)
+    assert "en efectivo" in cobro.saldo.text()  # todo en Bs si no se declara nada
+
+    cobro.vuelto_medio.setCurrentIndex(0)  # efectivo
+    cobro.vuelto_moneda.setCurrentText(USD)
+    cobro.vuelto_monto.setText("10")
+    cobro.agregar_vuelto()
+    assert cobro.tabla_vuelto.rowCount() == 1
+    assert "el resto" in cobro.saldo.text()
+    assert venta.vuelto_por_declarar_usd == Decimal("0.95")

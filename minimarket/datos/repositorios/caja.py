@@ -131,11 +131,12 @@ def cobrado_por_medio(
 def vueltos_de(
     conexion: sqlite3.Connection, sesion_id: int
 ) -> list[tuple[Decimal, Decimal]]:
-    """El vuelto entregado en cada venta, con la tasa de esa venta.
+    """Vueltos de ventas ANTERIORES a 1.3.0, con la tasa de cada venta.
 
-    Sale de la gaveta, asi que el arqueo lo resta. Se devuelve la tasa junto al
-    monto porque el vuelto se entrega en bolivares (RN-23) y la conversion es
-    del dia de la venta, no del dia del cierre.
+    Esas ventas no tienen filas en `venta_vuelto`: su vuelto salio en efectivo
+    en bolivares, que era lo unico que existia, y el arqueo lo convierte a la
+    tasa del dia de la venta. Las ventas nuevas declaran el vuelto y no pasan
+    por aca.
     """
     return [
         (
@@ -145,10 +146,28 @@ def vueltos_de(
         for f in conexion.execute(
             """SELECT v.vuelto_usd, t.valor
                  FROM venta v JOIN tasa_cambio t ON t.id = v.tasa_id
-                WHERE v.caja_sesion_id = ? AND v.estado <> ? AND v.vuelto_usd > 0""",
+                WHERE v.caja_sesion_id = ? AND v.estado <> ? AND v.vuelto_usd > 0
+                  AND NOT EXISTS (SELECT 1 FROM venta_vuelto x WHERE x.venta_id = v.id)""",
             (sesion_id, ANULADA),
         )
     ]
+
+
+def vueltos_por_medio(
+    conexion: sqlite3.Connection, sesion_id: int
+) -> dict[tuple[str, str], Decimal]:
+    """RN-23 / RN-26 (1.3.0). Lo devuelto en la sesion por medio y moneda."""
+    return {
+        (f["medio"], f["moneda"]): desde_entero(f["monto"], ESCALA_TOTAL)
+        for f in conexion.execute(
+            """SELECT x.medio, x.moneda, SUM(x.monto) AS monto
+                 FROM venta_vuelto x
+                 JOIN venta v ON v.id = x.venta_id
+                WHERE v.caja_sesion_id = ? AND v.estado <> ?
+                GROUP BY x.medio, x.moneda""",
+            (sesion_id, ANULADA),
+        )
+    }
 
 
 def resumen_ventas(

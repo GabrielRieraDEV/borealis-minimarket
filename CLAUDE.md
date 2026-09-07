@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-301 pruebas.
+307 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -215,11 +215,17 @@ Resueltas en la Fase 2:
 
 Resueltas en la Fase 3:
 
-- **Moneda del vuelto (RN-23)**: la regla deja elegirla, pero `venta` no tiene
-  columna donde guardarla. El vuelto se entrega en bolivares —que es el caso
-  del ejemplo C y el del pais— y el arqueo lo descuenta del efectivo en Bs,
-  ya redondeado por RN-10. Si alguna vez hace falta elegir, es una columna
-  `vuelto_moneda` mas una migracion con `PRAGMA user_version`.
+- **Moneda del vuelto (RN-23)**: hasta 1.2.x el vuelto salia siempre en
+  bolivares en efectivo. En 1.3.0 el cliente pidio elegir (vuelto en USD, por
+  pago movil, o repartido: «10 USD y el resto en Bs»). Se resolvio con la
+  tabla `venta_vuelto` (como `venta_pago`), no con una columna: sin migracion
+  y con varias partes por venta. `Venta.vueltos` declara las partes que NO
+  son efectivo Bs; `Venta.completar_vuelto` pone el resto en efectivo Bs
+  redondeado por RN-10, asi el caso comun sigue siendo cero clics. Una venta
+  sin filas es anterior a 1.3.0 y el arqueo la trata como antes
+  (`repo_caja.vueltos_de`, acotado a esas). El arqueo descuenta cada parte
+  de su gaveta; el vuelto por pago movil resta del renglon electronico, que
+  puede quedar negativo (salio de la cuenta).
 - **Arqueo (RN-26)**: `servicios/caja.py` calcula el esperado por medio y
   moneda. Solo los renglones de efectivo llevan conteo fisico y diferencia,
   que es lo unico que `caja_sesion` guarda; los medios electronicos se

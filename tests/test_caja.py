@@ -160,3 +160,108 @@ def test_tras_cerrar_se_puede_abrir_otra_sesion(conexion):
     segunda = servicio_caja.abrir(conexion, Decimal(0), Decimal(0))
     assert segunda.id != primera.id
     assert servicio_caja.sesion_abierta(conexion).id == segunda.id
+
+
+# --- Vuelto en dolares, por pago movil o repartido (RN-23, 1.3.0) ------------
+
+
+def _vender_con_vuelto(conexion, producto, cantidad, pagos, vueltos) -> Venta:
+    from minimarket.dominio.venta import Venta as _Venta
+
+    venta = _Venta(
+        usuario_id=USUARIO_SEMILLA,
+        tasa=TASA_DEL_EJEMPLO,
+        lineas=[servicio_venta.nueva_linea(conexion, producto.id, cantidad)],
+        pagos=pagos,
+    )
+    venta.vueltos = [venta.vuelto_declarado(m, mo, monto) for m, mo, monto in vueltos]
+    return servicio_venta.registrar_venta(conexion, venta)
+
+
+def test_el_vuelto_en_dolares_sale_de_la_gaveta_de_dolares(conexion, producto):
+    """Producto de 1 USD × 4 = 4 USD; paga 5 USD; vuelto 1 USD en dolares."""
+    cargar_tasa(conexion, servicio_tasa.hoy())
+    sesion = servicio_caja.abrir(conexion, Decimal("500.00"), Decimal("20.00"))
+    venta = _vender_con_vuelto(
+        conexion, producto, Decimal(4),
+        [servicio_venta.pago(EFECTIVO, USD, Decimal("5.00"), TASA_DEL_EJEMPLO)],
+        [(EFECTIVO, USD, Decimal("1.00"))],
+    )
+    assert [(v.medio, v.moneda, v.monto) for v in venta.vueltos] == [
+        (EFECTIVO, USD, Decimal("1.00"))
+    ]
+    resumen = servicio_caja.arqueo(conexion, sesion.id)
+    assert resumen.linea(EFECTIVO, BS).esperado == Decimal("500.00")  # intacta
+    assert resumen.linea(EFECTIVO, USD).esperado == Decimal("24.00")  # 20 + 5 − 1
+
+
+def test_el_vuelto_por_pago_movil_no_toca_la_gaveta(conexion, producto):
+    """Paga 5 USD en efectivo, el vuelto de 1 USD se le manda por pago movil."""
+    from minimarket.dominio.venta import PAGO_MOVIL
+
+    cargar_tasa(conexion, servicio_tasa.hoy())
+    sesion = servicio_caja.abrir(conexion, Decimal("500.00"), Decimal("0.00"))
+    _vender_con_vuelto(
+        conexion, producto, Decimal(4),
+        [servicio_venta.pago(EFECTIVO, USD, Decimal("5.00"), TASA_DEL_EJEMPLO)],
+        [(PAGO_MOVIL, BS, Decimal("210.50"))],  # 1,00 USD a 210,50, exacto
+    )
+    resumen = servicio_caja.arqueo(conexion, sesion.id)
+    assert resumen.linea(EFECTIVO, BS).esperado == Decimal("500.00")
+    assert resumen.linea(EFECTIVO, USD).esperado == Decimal("5.00")
+    # Salio de la cuenta: el renglon electronico queda en negativo.
+    assert resumen.linea(PAGO_MOVIL, BS).esperado == Decimal("-210.50")
+
+
+def test_el_vuelto_repartido_y_el_resto_en_bolivares(conexion, producto):
+    """El ejemplo del cliente: parte en dolares y el resto en bolivares.
+
+    Producto de 1 USD × 2; paga 20 USD; vuelto 18 USD. Declara 10 USD en
+    efectivo; los 8 USD restantes salen en Bs: 1.684,00 → 1.684 al publico.
+    """
+    cargar_tasa(conexion, servicio_tasa.hoy())
+    sesion = servicio_caja.abrir(conexion, Decimal("5000.00"), Decimal("0.00"))
+    venta = _vender_con_vuelto(
+        conexion, producto, Decimal(2),
+        [servicio_venta.pago(EFECTIVO, USD, Decimal("20.00"), TASA_DEL_EJEMPLO)],
+        [(EFECTIVO, USD, Decimal("10.00"))],
+    )
+    assert [(v.moneda, v.monto, v.monto_usd) for v in venta.vueltos] == [
+        (USD, Decimal("10.00"), Decimal("10.00")),
+        (BS, Decimal("1684.00"), Decimal("8.00")),
+    ]
+    resumen = servicio_caja.arqueo(conexion, sesion.id)
+    assert resumen.linea(EFECTIVO, USD).esperado == Decimal("10.00")  # 20 − 10
+    assert resumen.linea(EFECTIVO, BS).esperado == Decimal("3316.00")  # 5000 − 1684
+
+
+def test_no_se_puede_declarar_mas_vuelto_del_que_hay(conexion, producto):
+    cargar_tasa(conexion, servicio_tasa.hoy())
+    servicio_caja.abrir(conexion)
+    with pytest.raises(servicio_venta.ErrorVenta, match="supera el vuelto"):
+        _vender_con_vuelto(
+            conexion, producto, Decimal(4),
+            [servicio_venta.pago(EFECTIVO, USD, Decimal("5.00"), TASA_DEL_EJEMPLO)],
+            [(EFECTIVO, USD, Decimal("2.00"))],
+        )
+    with pytest.raises(servicio_venta.ErrorVenta, match="punto de venta"):
+        _vender_con_vuelto(
+            conexion, producto, Decimal(4),
+            [servicio_venta.pago(EFECTIVO, USD, Decimal("5.00"), TASA_DEL_EJEMPLO)],
+            [(PUNTO, USD, Decimal("1.00"))],
+        )
+
+
+def test_las_ventas_viejas_sin_vuelto_declarado_siguen_en_bolivares(conexion, producto):
+    """Una venta anterior a 1.3.0 no tiene filas de vuelto: el arqueo la trata
+    como siempre, efectivo en Bs redondeado al publico."""
+    cargar_tasa(conexion, servicio_tasa.hoy())
+    sesion = servicio_caja.abrir(conexion, Decimal("500.00"), Decimal("0.00"))
+    venta = _vender(
+        conexion, producto, Decimal(4),
+        [servicio_venta.pago(EFECTIVO, USD, Decimal("5.00"), TASA_DEL_EJEMPLO)],
+    )
+    conexion.execute("DELETE FROM venta_vuelto WHERE venta_id = ?", (venta.id,))
+    conexion.commit()
+    resumen = servicio_caja.arqueo(conexion, sesion.id)
+    assert resumen.linea(EFECTIVO, BS).esperado == Decimal("289.00")  # 500 − 211

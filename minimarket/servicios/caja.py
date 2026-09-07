@@ -92,8 +92,10 @@ def arqueo(
 
     cobrado = repo_caja.cobrado_por_medio(conexion, sesion_id)
     multiplo = servicio_tasa.multiplo_redondeo(conexion)
-    # RN-23: el vuelto se entrega en bolivares y sale de la gaveta.
-    vuelto_bs = sum(
+    # RN-23 (1.3.0): el vuelto sale de donde el cajero dijo que salio. Las
+    # ventas anteriores a 1.3.0 no lo declaran: salio en efectivo en Bs.
+    devuelto = repo_caja.vueltos_por_medio(conexion, sesion_id)
+    devuelto[(EFECTIVO, BS)] = devuelto.get((EFECTIVO, BS), Decimal(0)) + sum(
         (
             redondear_comercial(convertir_a_bs(monto, tasa), multiplo)
             for monto, tasa in repo_caja.vueltos_de(conexion, sesion_id)
@@ -101,27 +103,32 @@ def arqueo(
         Decimal(0),
     )
 
+    def neto(medio: str, moneda: str) -> Decimal:
+        return cobrado.get((medio, moneda), Decimal(0)) - devuelto.get(
+            (medio, moneda), Decimal(0)
+        )
+
     lineas = [
         LineaCierre(
             medio=EFECTIVO,
             moneda=BS,
-            esperado=sesion.inicial_bs + cobrado.get((EFECTIVO, BS), Decimal(0))
-            - vuelto_bs,
+            esperado=sesion.inicial_bs + neto(EFECTIVO, BS),
             conteo=conteo_bs,
         ),
         LineaCierre(
             medio=EFECTIVO,
             moneda=USD,
-            esperado=sesion.inicial_usd + cobrado.get((EFECTIVO, USD), Decimal(0)),
+            esperado=sesion.inicial_usd + neto(EFECTIVO, USD),
             conteo=conteo_usd,
         ),
     ]
     # Los medios electronicos no se cuentan en la gaveta: se concilian contra
-    # el banco. Van sin conteo, solo con lo que deberia haber entrado.
+    # el banco. Van sin conteo, con lo que entro menos lo que se devolvio por
+    # ese medio (un vuelto por pago movil es plata que salio de la cuenta).
+    electronicos = {clave for clave in [*cobrado, *devuelto] if clave[0] != EFECTIVO}
     lineas += [
-        LineaCierre(medio=medio, moneda=moneda, esperado=monto)
-        for (medio, moneda), monto in sorted(cobrado.items())
-        if medio != EFECTIVO
+        LineaCierre(medio=medio, moneda=moneda, esperado=neto(medio, moneda))
+        for medio, moneda in sorted(electronicos)
     ]
 
     ventas, vendido = repo_caja.resumen_ventas(conexion, sesion_id)

@@ -25,6 +25,7 @@ from minimarket.dominio.venta import (
     LineaVenta,
     Pago,
     Venta,
+    Vuelto,
 )
 
 _CAMPOS = """id, numero, caja_sesion_id, usuario_id, cliente_id, tasa_id,
@@ -139,6 +140,38 @@ def registrar_pago(conexion: sqlite3.Connection, venta_id: int, pago: Pago) -> i
     ).lastrowid
 
 
+def registrar_vuelto(conexion: sqlite3.Connection, venta_id: int, vuelto: Vuelto) -> int:
+    """RN-23 (1.3.0). En que salio el vuelto."""
+    return conexion.execute(
+        """INSERT INTO venta_vuelto (venta_id, medio, moneda, monto, monto_usd)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            venta_id,
+            vuelto.medio,
+            vuelto.moneda,
+            a_entero(vuelto.monto, ESCALA_TOTAL),
+            a_entero(vuelto.monto_usd, ESCALA_TOTAL),
+        ),
+    ).lastrowid
+
+
+def vueltos_de(conexion: sqlite3.Connection, venta_id: int) -> list[Vuelto]:
+    return [
+        Vuelto(
+            id=f["id"],
+            medio=f["medio"],
+            moneda=f["moneda"],
+            monto=desde_entero(f["monto"], ESCALA_TOTAL),
+            monto_usd=desde_entero(f["monto_usd"], ESCALA_TOTAL),
+        )
+        for f in conexion.execute(
+            """SELECT id, medio, moneda, monto, monto_usd
+                 FROM venta_vuelto WHERE venta_id = ? ORDER BY id""",
+            (venta_id,),
+        )
+    ]
+
+
 def obtener(conexion: sqlite3.Connection, venta_id: int) -> Venta | None:
     """Venta completa: encabezado, lineas y pagos."""
     fila = conexion.execute(
@@ -152,6 +185,7 @@ def obtener(conexion: sqlite3.Connection, venta_id: int) -> Venta | None:
     venta = _entidad(fila, desde_entero(fila["tasa_valor"], ESCALA_TASA))
     venta.lineas = lineas_de(conexion, venta_id)
     venta.pagos = pagos_de(conexion, venta_id)
+    venta.vueltos = vueltos_de(conexion, venta_id)
     return venta
 
 

@@ -34,6 +34,8 @@ PAGO_MOVIL = "PAGO_MOVIL"
 PUNTO = "PUNTO"
 TRANSFERENCIA = "TRANSFERENCIA"
 MEDIOS = [EFECTIVO, PAGO_MOVIL, PUNTO, TRANSFERENCIA]
+# En que puede salir el vuelto (RN-23): por punto no se devuelve nada.
+MEDIOS_VUELTO = [EFECTIVO, PAGO_MOVIL, TRANSFERENCIA]
 
 BS = "BS"
 USD = "USD"
@@ -119,6 +121,27 @@ class Pago:
         return self.medio == EFECTIVO
 
 
+@dataclass
+class Vuelto:
+    """RN-23 (1.3.0). En que salio el vuelto: la moneda la indica el cajero.
+
+    Efectivo en bolivares, efectivo en dolares, o pago movil / transferencia
+    cuando el cliente paga con un billete grande y el vuelto se le manda.
+    `monto` va en la moneda entregada; `monto_usd` es lo que vale a la tasa
+    de la venta, y la suma de todos los vueltos tiene que dar `vuelto_usd`.
+    """
+
+    medio: str
+    moneda: str
+    monto: Decimal
+    monto_usd: Decimal
+    id: int | None = None
+
+    @property
+    def es_efectivo(self) -> bool:
+        return self.medio == EFECTIVO
+
+
 def equivalente_usd(monto: Decimal, moneda: str, tasa: Decimal) -> Decimal:
     """RN-22. Equivalente en dolares de un pago, a la tasa de la venta."""
     if moneda == USD:
@@ -137,6 +160,7 @@ class Venta:
     cliente_id: int | None = None
     lineas: list[LineaVenta] = field(default_factory=list)
     pagos: list[Pago] = field(default_factory=list)
+    vueltos: list[Vuelto] = field(default_factory=list)  # vacio: efectivo Bs
     numero: int | None = None
     estado: str = COMPLETADA
     fecha_hora: str | None = None
@@ -208,6 +232,63 @@ class Venta:
     def vuelto_bs(self, multiplo: Decimal = Decimal(1)) -> Decimal:
         """RN-23 + RN-10. El vuelto entregado en bolivares, ya redondeado."""
         return redondear_comercial(convertir_a_bs(self.vuelto_usd, self.tasa), multiplo)
+
+    def vuelto_en(
+        self, medio: str, moneda: str, multiplo: Decimal = Decimal(1)
+    ) -> Vuelto:
+        """RN-23. Todo el vuelto por un medio y una moneda.
+
+        El efectivo en bolivares se redondea al sencillo (RN-10) porque no hay
+        monedas de centimos; lo electronico va exacto, porque se transfiere
+        con centimos. En dolares va tal cual.
+        """
+        if moneda == USD:
+            monto = self.vuelto_usd
+        elif medio == EFECTIVO:
+            monto = self.vuelto_bs(multiplo)
+        else:
+            monto = convertir_a_bs(self.vuelto_usd, self.tasa)
+        return Vuelto(medio=medio, moneda=moneda, monto=monto, monto_usd=self.vuelto_usd)
+
+    def vuelto_declarado(self, medio: str, moneda: str, monto: Decimal) -> Vuelto:
+        """Una parte del vuelto que el cajero entrega por un medio concreto.
+
+        «10 USD en efectivo y el resto en bolivares»: esta es la parte de los
+        10 USD. El equivalente en dolares sale a la tasa de la venta (RN-22).
+        """
+        return Vuelto(
+            medio=medio,
+            moneda=moneda,
+            monto=monto,
+            monto_usd=equivalente_usd(monto, moneda, self.tasa),
+        )
+
+    @property
+    def vuelto_declarado_usd(self) -> Decimal:
+        return sum((v.monto_usd for v in self.vueltos), Decimal(0))
+
+    @property
+    def vuelto_por_declarar_usd(self) -> Decimal:
+        """Lo que falta repartir; sale en efectivo en Bs si nadie dice otra cosa."""
+        return self.vuelto_usd - self.vuelto_declarado_usd
+
+    def completar_vuelto(self, multiplo: Decimal = Decimal(1)) -> None:
+        """RN-23. Lo no declarado sale en efectivo en bolivares, redondeado."""
+        resto = self.vuelto_por_declarar_usd
+        if resto > 0:
+            self.vueltos.append(
+                Vuelto(
+                    medio=EFECTIVO,
+                    moneda=BS,
+                    monto=redondear_comercial(convertir_a_bs(resto, self.tasa), multiplo),
+                    monto_usd=resto,
+                )
+            )
+
+    @property
+    def vuelto_cuadra(self) -> bool:
+        """Los vueltos suman exactamente el vuelto de la venta."""
+        return self.vuelto_declarado_usd == self.vuelto_usd
 
 
 # --- Caja (RF-42 a RF-45, RN-26) --------------------------------------------

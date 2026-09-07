@@ -340,6 +340,23 @@ CREATE TABLE IF NOT EXISTS venta_pago (
 );
 CREATE INDEX IF NOT EXISTS ix_venta_pago_venta ON venta_pago (venta_id);
 
+-- En que salio el vuelto (RN-23, 1.3.0): efectivo en Bs o USD, o pago movil /
+-- transferencia cuando el cliente paga con un billete grande y el vuelto se le
+-- manda. Una venta sin filas aca es anterior a 1.3.0: su vuelto salio en
+-- efectivo en bolivares, que era lo unico que existia.
+CREATE TABLE IF NOT EXISTS venta_vuelto (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    venta_id   INTEGER NOT NULL REFERENCES venta(id),
+    medio      TEXT    NOT NULL,
+    moneda     TEXT    NOT NULL,
+    monto      INTEGER NOT NULL,                    -- x100, en la moneda entregada
+    monto_usd  INTEGER NOT NULL,                    -- x100, a la tasa de la venta
+    CONSTRAINT ck_vuelto_medio CHECK (medio IN ('EFECTIVO','PAGO_MOVIL','TRANSFERENCIA')),
+    CONSTRAINT ck_vuelto_moneda CHECK (moneda IN ('BS','USD')),
+    CONSTRAINT ck_vuelto_monto CHECK (monto > 0)
+);
+CREATE INDEX IF NOT EXISTS ix_venta_vuelto_venta ON venta_vuelto (venta_id);
+
 -- ---------------------------------------------------------------------
 -- 7. GASTOS OPERATIVOS
 -- ---------------------------------------------------------------------

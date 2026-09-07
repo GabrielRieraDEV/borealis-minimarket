@@ -137,7 +137,22 @@ la venta sale como consumidor final y no hay que tocar nada.
    saldo llegue a cero.
 4. `F12` otra vez confirma el cobro.
 
-Si el cliente paga de más, el **vuelto se calcula y se entrega en bolívares**.
+### El vuelto
+
+Si el cliente paga de más, aparece el bloque **Vuelto**. Si no se toca nada,
+**todo el vuelto sale en bolívares en efectivo** (redondeado al sencillo) y
+el cierre de caja lo descuenta de la gaveta de bolívares.
+
+Cuando el vuelto sale de otro lado, se declara ahí, igual que un pago: se
+elige **Efectivo / Pago móvil / Transferencia**, la moneda y el monto, y
+**Agregar parte del vuelto**. Se pueden combinar: «10 USD en efectivo» y el
+resto sale solo en bolívares; o todo por pago móvil. La línea de abajo dice
+en todo momento cuánto queda por repartir y en qué sale.
+
+El cierre de caja lo tiene en cuenta: el vuelto en dólares sale de la gaveta
+de dólares, y el vuelto por pago móvil resta del renglón de pago móvil (es
+plata que salió de la cuenta), sin tocar el efectivo.
+
 La nota de entrega se imprime sola si hay impresora configurada; si la
 impresora falla, la venta **igual queda registrada** y se reimprime con `F9`.
 
