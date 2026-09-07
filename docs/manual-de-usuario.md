@@ -114,7 +114,8 @@ barras y el producto se agrega solo.
 - **Quitar un renglón:** se selecciona y `Supr`.
 - **Cancelar toda la venta:** `Esc`.
 
-El panel verde muestra el total a pagar en bolívares —lo que el cliente ve
+Cada renglón muestra el precio y el total en dólares y en bolívares, con la
+tasa del día. El panel verde muestra el total a pagar en bolívares —lo que el cliente ve
 desde el otro lado del mostrador— y debajo su equivalente en dólares. Se
 actualiza en cada tecla.
 

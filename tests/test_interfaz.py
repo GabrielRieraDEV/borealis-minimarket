@@ -85,6 +85,11 @@ def test_el_punto_de_venta_arma_una_venta_desde_el_lector(aplicacion, base_demo)
         pantalla.agregar()
     assert pantalla.tabla.rowCount() == 3
     assert pantalla.total_bs.text().startswith("Bs ")
+    # Cada linea tambien en bolivares (1.2.2): harina 1,20 USD → 966 Bs al publico.
+    encabezados = [pantalla.tabla.horizontalHeaderItem(i).text() for i in range(pantalla.tabla.columnCount())]
+    assert encabezados == ["Producto", "Cantidad", "Precio USD", "Precio Bs", "IVA %", "Total USD", "Total Bs"]
+    assert pantalla.tabla.item(0, 3).text() == "966.00"
+    assert pantalla.tabla.item(0, 6).text() == "965.77"
     assert pantalla.codigo.text() == ""  # el foco vuelve limpio para el lector
 
     cobro = DialogoCobro(pantalla._venta_en_curso())
@@ -237,7 +242,8 @@ def test_la_ficha_sugiere_el_precio_al_escribir_el_costo(aplicacion, base_demo):
     ficha.costo.setText("1,00")
     # 1,00 × 1,30 = 1,30 de base; + 16 % de IVA = 1,5080
     assert ficha.precio_sugerido == Decimal("1.5080")
-    assert "Precio sugerido: 1.5080 USD (margen de Viveres, 30.00 %)" in ficha.sugerencia.text()
+    # 1,5080 × 804,8109 = 1.213,65 Bs → 1.214 con el redondeo al publico (RN-10).
+    assert "Precio sugerido: 1.5080 USD = 1,214.00 Bs (margen de Viveres, 30.00 %)" in ficha.sugerencia.text()
     ficha.calcular_precio()
     assert ficha.precio.text() == "1.5080"
     # Un margen propio pisa al de la categoria.

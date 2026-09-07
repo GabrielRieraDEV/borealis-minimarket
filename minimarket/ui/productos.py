@@ -497,6 +497,14 @@ class DialogoProducto(QDialog):
                 return categoria.margen_objetivo, f"margen de {categoria.nombre}"
         return None, ""
 
+    def _en_bs(self, precio_usd: Decimal) -> str:
+        """« = 1.010,00 Bs» con la tasa de hoy y el redondeo al publico; vacio sin tasa."""
+        tasa = servicio_tasa.tasa_del_dia(self.conexion)
+        if tasa is None:
+            return ""
+        bs = precio_publico_bs(precio_usd, tasa, servicio_tasa.multiplo_redondeo(self.conexion))
+        return f" = {formato(bs)} Bs"
+
     def actualizar_sugerencia(self) -> None:
         """Precio sugerido en vivo: costo × (1 + margen) + IVA (RN-09)."""
         self.precio_sugerido = None
@@ -521,15 +529,15 @@ class DialogoProducto(QDialog):
         )
         self.precio_sugerido = precio_desde_margen(costo, margen, alicuota)
         texto = (
-            f"Precio sugerido: {formato(self.precio_sugerido, 4)} USD "
-            f"({origen}, {formato(margen)} %)."
+            f"Precio sugerido: {formato(self.precio_sugerido, 4)} USD"
+            f"{self._en_bs(self.precio_sugerido)} ({origen}, {formato(margen)} %)."
         )
         if self.piso is not None and margen < self.piso:
             con_piso = precio_desde_margen(costo, self.piso, alicuota)
             texto += (
                 f" Ojo: ese margen esta por debajo del minimo del negocio "
                 f"({formato(self.piso)} %); con el minimo seria "
-                f"{formato(con_piso, 4)} USD."
+                f"{formato(con_piso, 4)} USD{self._en_bs(con_piso)}."
             )
         self.sugerencia.setText(texto)
 

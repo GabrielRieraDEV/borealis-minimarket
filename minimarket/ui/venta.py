@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from minimarket.dominio.dinero import convertir_a_bs
+from minimarket.dominio.producto import precio_publico_bs
 from minimarket.dominio.usuario import ANULAR_VENTAS
 from minimarket.dominio.venta import BS, MEDIOS, MONEDAS, Cliente, LineaVenta, Venta
 from minimarket.servicios import ErrorServicio, usuario_actual
@@ -46,7 +48,7 @@ from minimarket.servicios import venta as servicio_venta
 from minimarket.ui.comunes import ErrorDeCampo, a_decimal, avisar, confirmar, formato
 from minimarket.ui.usuarios import pedir_autorizacion
 
-COLUMNAS = ["Producto", "Cantidad", "Precio USD", "IVA %", "Total USD"]
+COLUMNAS = ["Producto", "Cantidad", "Precio USD", "Precio Bs", "IVA %", "Total USD", "Total Bs"]
 COLUMNAS_PAGO = ["Medio", "Moneda", "Monto", "Equivale USD", "Referencia"]
 COLUMNAS_ARQUEO = ["Medio", "Moneda", "Esperado", "Contado", "Diferencia"]
 
@@ -164,13 +166,21 @@ class PantallaVenta(QWidget):
     def _pintar(self) -> None:
         venta = self._venta_en_curso()
         self.tabla.setRowCount(len(self.lineas))
+        # Pedido del cliente (1.2.2): cada linea tambien en bolivares. El
+        # unitario con el redondeo al publico (RN-10), el total sin redondear,
+        # que es lo que suma el total en Bs del panel.
+        multiplo = servicio_tasa.multiplo_redondeo(self.conexion)
         for fila, linea in enumerate(self.lineas):
             celdas = [
                 linea.descripcion,
                 formato(linea.cantidad, 3),
                 formato(linea.precio_unit_usd, 4),
+                formato(precio_publico_bs(linea.precio_unit_usd, self.tasa, multiplo))
+                if self.tasa is not None else "—",
                 formato(linea.alicuota_pct),
                 formato(linea.total_linea_usd),
+                formato(convertir_a_bs(linea.total_linea_usd, self.tasa))
+                if self.tasa is not None else "—",
             ]
             for columna, texto in enumerate(celdas):
                 self.tabla.setItem(fila, columna, QTableWidgetItem(texto))
