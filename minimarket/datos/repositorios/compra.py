@@ -206,3 +206,29 @@ def actualizar_saldo(
         "UPDATE compra SET saldo_pendiente_usd = ? WHERE id = ?",
         (a_entero(saldo_usd, ESCALA_TOTAL), compra_id),
     )
+
+
+# --- Corregir (1.3.2) -------------------------------------------------------
+
+
+def actualizar_encabezado(
+    conexion: sqlite3.Connection,
+    compra_id: int,
+    proveedor_id: int,
+    numero_documento: str | None,
+    observacion: str | None,
+) -> None:
+    """Lo que no mueve dinero ni inventario se corrige en el lugar."""
+    conexion.execute(
+        """UPDATE compra SET proveedor_id = ?, numero_documento = ?, observacion = ?
+            WHERE id = ?""",
+        (proveedor_id, numero_documento, observacion, compra_id),
+    )
+
+
+def reasignar_pagos(conexion: sqlite3.Connection, de_compra: int, a_compra: int) -> None:
+    """Los pagos ya hechos al proveedor siguen a la compra corregida."""
+    conexion.execute(
+        "UPDATE pago_proveedor SET compra_id = ? WHERE compra_id = ?",
+        (a_compra, de_compra),
+    )

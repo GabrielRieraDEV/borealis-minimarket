@@ -407,3 +407,94 @@ def test_no_avisa_cuando_el_margen_alcanza(conexion, categoria, exento):
         conexion, producto.id, Decimal("0.6000"), unidades=Decimal(20)
     )
     assert resultado.avisos == []
+
+
+# --- Corregir una compra (RN-13, 1.3.2) ---------------------------------------
+
+
+def _vender_unidades(conexion, producto, cantidad):
+    from minimarket.dominio.venta import EFECTIVO, USD, Venta
+    from minimarket.servicios import caja as servicio_caja
+    from minimarket.servicios import tasa as servicio_tasa
+    from minimarket.servicios import venta as servicio_venta
+    from tests.conftest import cargar_tasa
+
+    cargar_tasa(conexion, servicio_tasa.hoy())
+    if servicio_caja.sesion_abierta(conexion) is None:
+        servicio_caja.abrir(conexion)
+    venta = Venta(usuario_id=1, tasa=Decimal(1))
+    venta.lineas = [servicio_venta.nueva_linea(conexion, producto.id, cantidad)]
+    venta.pagos = [servicio_venta.pago(EFECTIVO, USD, venta.total_usd, Decimal(1))]
+    servicio_venta.registrar_venta(conexion, venta)
+
+
+def test_corregir_el_costo_aunque_parte_ya_se_vendio(conexion, categoria, exento):
+    """Entraron 20 a 0,60; se vendieron 5; el costo real era 0,50."""
+    producto = alta(conexion, categoria, exento, precio_venta_usd=Decimal("1.00"))
+    original = registrar_compra(conexion, producto.id, Decimal("0.6000"), unidades=Decimal(20))
+    _vender_unidades(conexion, producto, Decimal(5))
+    assert repo_inventario.existencia(conexion, producto.id) == Decimal(15)
+
+    corregida = _compra(
+        conexion,
+        LineaCompra(producto.id, Decimal(1), Decimal(20), Decimal("10.00")),  # 0,50 c/u
+    )
+    resultado = compras.corregir_compra(
+        conexion, original.compra_id, corregida, "el costo era 0,50"
+    )
+    assert resultado.compra_id != original.compra_id
+    vieja = repo_compra.obtener(conexion, original.compra_id)
+    nueva = repo_compra.obtener(conexion, resultado.compra_id)
+    assert vieja.estado == ANULADA and f"#{nueva.id}" in vieja.observacion
+    assert nueva.estado == CONFIRMADA and nueva.total_usd == Decimal("10.00")
+    # La existencia termina donde tiene que terminar, y el costo es el nuevo.
+    assert repo_inventario.existencia(conexion, producto.id) == Decimal(15)
+    assert repo_producto.ultimo_costo(conexion, producto.id) == Decimal("0.5000")
+
+
+def test_no_se_corrige_por_debajo_de_lo_ya_vendido(conexion, categoria, exento):
+    producto = alta(conexion, categoria, exento, precio_venta_usd=Decimal("1.00"))
+    original = registrar_compra(conexion, producto.id, Decimal("0.6000"), unidades=Decimal(20))
+    _vender_unidades(conexion, producto, Decimal(5))
+    corregida = _compra(
+        conexion, LineaCompra(producto.id, Decimal(1), Decimal(4), Decimal("2.40"))
+    )
+    with pytest.raises(compras.ErrorCompra, match="ya se vendieron"):
+        compras.corregir_compra(conexion, original.compra_id, corregida, "eran 4")
+    # Se deshizo todo: la original sigue confirmada y la existencia intacta.
+    assert repo_compra.obtener(conexion, original.compra_id).estado == CONFIRMADA
+    assert repo_inventario.existencia(conexion, producto.id) == Decimal(15)
+
+
+def test_los_pagos_siguen_a_la_compra_corregida(conexion, categoria, exento):
+    producto = alta(conexion, categoria, exento)
+    original = registrar_compra(conexion, producto.id, Decimal("0.6000"), unidades=Decimal(20))
+    compras.registrar_pago(
+        conexion, original.compra_id, Decimal("5.00"), "EFECTIVO", fecha="2026-08-01"
+    )
+    corregida = _compra(
+        conexion, LineaCompra(producto.id, Decimal(1), Decimal(20), Decimal("14.00"))
+    )
+    resultado = compras.corregir_compra(conexion, original.compra_id, corregida, "eran 14")
+    nueva = repo_compra.obtener(conexion, resultado.compra_id)
+    assert nueva.saldo_pendiente_usd == Decimal("9.00")  # 14 − 5 ya pagados
+    assert [p.compra_id for p in repo_compra.pagos_de(conexion, nueva.id)] == [nueva.id]
+    assert repo_compra.pagos_de(conexion, original.compra_id) == []
+    with pytest.raises(compras.ErrorCompra, match="ya se le pagaron"):
+        compras.corregir_compra(
+            conexion, nueva.id,
+            _compra(conexion, LineaCompra(producto.id, Decimal(1), Decimal(20), Decimal("4.00"))),
+            "menos que lo pagado",
+        )
+
+
+def test_el_encabezado_se_corrige_en_el_lugar(conexion, categoria, exento):
+    producto = alta(conexion, categoria, exento)
+    original = registrar_compra(conexion, producto.id, Decimal("0.6000"), unidades=Decimal(20))
+    otro = compras.guardar_proveedor(conexion, Proveedor(nombre="Otro"))
+    compras.modificar_encabezado(conexion, original.compra_id, otro, " F-0099 ", "")
+    compra = repo_compra.obtener(conexion, original.compra_id)
+    assert (compra.proveedor_id, compra.numero_documento, compra.observacion) == (otro, "F-0099", None)
+    assert compra.estado == CONFIRMADA and compra.id == original.compra_id
+    with pytest.raises(compras.ErrorCompra, match="que se corrige"):
+        compras.corregir_compra(conexion, original.compra_id, _compra(conexion, LineaCompra(producto.id, Decimal(1), Decimal(20), Decimal("12"))), "  ")

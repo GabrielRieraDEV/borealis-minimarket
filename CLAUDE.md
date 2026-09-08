@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-310 pruebas.
+315 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -496,6 +496,19 @@ Después de la entrega (1.2.0), a pedido del cliente:
   entero. Cambiar el valor de un recurrente con historia cierra el viejo en el
   mes anterior y crea uno desde el mes actual: agosto sigue diciendo lo que
   agosto pagó. Solo texto, o creado este mes: en el lugar.
+- **Las compras se corrigen (1.3.2)** sin tocar RN-13: `compras.corregir_compra`
+  registra la corregida y anula la original (movimientos inversos que la
+  referencian, observación «Corregida por la compra #N») **en una sola
+  transacción**; para eso `registrar_compra` y `anular_compra` quedaron
+  partidos en `_preparar`/`_registrar` y `_entradas_de`/`_anular`, porque
+  `transaccion` no se anida. La guarda de «ya salió mercadería» de la
+  anulación no aplica en la corrección: lo que se verifica es que ningún
+  producto termine en negativo, dentro de la transacción, y si pasa se
+  deshace todo con el mensaje. Los pagos se reasignan a la compra nueva
+  (`repo_compra.reasignar_pagos`) y su saldo es total − pagado; pagado >
+  total se rechaza. Proveedor, documento y observación se corrigen en el
+  lugar (`modificar_encabezado`, asiento `CAMBIO_COMPRA`): no mueven nada.
+  `DialogoCompra(corregir=True)` decide cuál de las dos según lo que cambió.
 - **Los nombres de los reportes ya no llevan «(RF-xx)»**: los códigos están
   en los docstrings, que es donde le sirven a quien programa.
 

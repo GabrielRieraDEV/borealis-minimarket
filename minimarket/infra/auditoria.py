@@ -24,6 +24,8 @@ CAMBIO_USUARIO = "CAMBIO_USUARIO"
 CAMBIO_CLAVE = "CAMBIO_CLAVE"
 CAMBIO_CONFIGURACION = "CAMBIO_CONFIGURACION"
 CAMBIO_GASTO = "CAMBIO_GASTO"  # editar, quitar o convertir un gasto (1.3.1)
+CORRECCION_COMPRA = "CORRECCION_COMPRA"  # anulada y vuelta a registrar (1.3.2)
+CAMBIO_COMPRA = "CAMBIO_COMPRA"  # encabezado: documento, proveedor, observacion
 RESTAURACION = "RESTAURACION"
 
 

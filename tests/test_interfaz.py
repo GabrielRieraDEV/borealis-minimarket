@@ -312,3 +312,56 @@ def test_los_gastos_se_editan_desde_la_pantalla(aplicacion, base_demo, monkeypat
     pantalla.convertir()
     assert all(r.gasto_id != gasto.gasto_id for r in pantalla.renglones)
     assert any(g.descripcion == gasto.descripcion and g.monto_usd == Decimal(45) for g in pantalla.recurrentes)
+
+
+def test_la_compra_se_corrige_desde_la_pantalla(aplicacion, base_demo, monkeypatch):
+    """Cambiar el documento corrige en el lugar; cambiar un costo anula y
+    vuelve a registrar, y la existencia termina igual."""
+    from decimal import Decimal
+
+    from minimarket.dominio.compra import ANULADA, CONFIRMADA
+    from minimarket.servicios import compras as servicio_compras
+    from minimarket.servicios import inventario as servicio_inventario
+    from minimarket.ui import compras as ui_compras
+
+    monkeypatch.setattr(ui_compras, "confirmar", lambda *a: True)
+    monkeypatch.setattr(ui_compras, "avisar", lambda *a: (_ for _ in ()).throw(AssertionError(a[1])))
+    # El aviso de margen abre un QMessageBox modal, que en offscreen se queda
+    # esperando un clic para siempre. Aca no se prueba el aviso.
+    monkeypatch.setattr(ui_compras.DialogoCompra, "_avisar_margenes", lambda self, avisos: None)
+    compra = servicio_compras.listar_compras(base_demo)[0]
+    completa = servicio_compras.obtener_compra(base_demo, compra.id)
+    existencias_antes = {
+        l.producto_id: servicio_inventario.existencia(base_demo, l.producto_id)
+        for l in completa.lineas
+    }
+
+    # Solo el documento: mismo id, sigue confirmada.
+    ficha = ui_compras.DialogoCompra(base_demo, completa, corregir=True)
+    assert ficha.windowTitle() == "Corregir compra"
+    assert ficha.tabla.rowCount() == len(completa.lineas)
+    ficha.documento.setText("F-2026-001")
+    ficha.confirmar()
+    assert servicio_compras.obtener_compra(base_demo, compra.id).numero_documento == "F-2026-001"
+    assert servicio_compras.obtener_compra(base_demo, compra.id).estado == CONFIRMADA
+
+    # Un costo: la original queda anulada, nace otra, la existencia no cambia.
+    completa = servicio_compras.obtener_compra(base_demo, compra.id)
+    ficha = ui_compras.DialogoCompra(base_demo, completa, corregir=True)
+    primera = ficha.lineas[0]
+    ficha.lineas[0] = type(primera)(
+        producto_id=primera.producto_id,
+        cant_presentacion=primera.cant_presentacion,
+        unid_x_presentacion=primera.unid_x_presentacion,
+        costo_present_usd=primera.costo_present_usd + Decimal("1.00"),
+        fecha_vencimiento=primera.fecha_vencimiento,
+    )
+    ficha.motivo.setText("el costo del primer renglon era un dolar mas")
+    ficha.confirmar()
+    assert servicio_compras.obtener_compra(base_demo, compra.id).estado == ANULADA
+    nueva = servicio_compras.listar_compras(base_demo)[0]
+    assert nueva.id != compra.id and nueva.estado == CONFIRMADA
+    # Un dolar mas por bulto: la compra puede tener varios bultos en esa linea.
+    assert nueva.total_usd == completa.total_usd + primera.cant_presentacion * Decimal("1.00")
+    for producto_id, antes in existencias_antes.items():
+        assert servicio_inventario.existencia(base_demo, producto_id) == antes

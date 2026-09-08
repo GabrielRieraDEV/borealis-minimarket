@@ -217,8 +217,27 @@ Los márgenes objetivo se fijan en Categorías (`F3`) para toda la categoría, o
 en Productos (`F2`) para uno en particular. El sistema no inventa el margen:
 calcula el precio que lo cumple con el costo real de la última compra.
 
-> **Anular una compra:** `Supr`. No se puede si ya se pagó o si parte de esa
-> mercadería ya se vendió; en ese caso la corrección es un ajuste o una pérdida.
+### Corregir una compra
+
+**Corregir (`F2`)** sobre la compra seleccionada abre la misma ficha con
+todo cargado y editable, más un campo **Motivo de la corrección**.
+
+- Si solo cambia el **proveedor, el número de documento o la observación**,
+  se corrige en el lugar. No mueve dinero ni inventario.
+- Si cambia la **fecha o alguna línea** (un bulto de más, un costo mal
+  tipeado, el producto equivocado), el sistema **anula la compra original**
+  con sus movimientos inversos y **registra la corregida** como una compra
+  nueva, todo de una vez. Los pagos que ya se hicieron al proveedor pasan a
+  la nueva. La original queda visible marcada «Anulada» con una nota que
+  dice por cuál se reemplazó.
+
+Funciona aunque parte de esa mercadería ya se haya vendido: lo que importa
+es dónde termina la existencia. Lo único que el sistema no acepta es
+corregir la cantidad por debajo de lo que ya se vendió, y en ese caso lo
+dice con el producto y el número.
+
+> **Anular una compra:** `Supr`. Se niega si ya se pagó o si parte de esa
+> mercadería ya se vendió; para eso está **Corregir**.
 
 > **Pagar al proveedor:** `F6` sobre la compra registra el pago.
 

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minimarket.dominio.compra import ANULADA, Compra, LineaCompra, Proveedor
+from minimarket.dominio.compra import ANULADA, CONFIRMADA, Compra, LineaCompra, Proveedor
 from minimarket.servicios import ErrorServicio
 from minimarket.servicios import catalogo, compras, usuario_actual
 from minimarket.servicios import tasa as servicio_tasa
@@ -79,6 +79,7 @@ class PantallaCompras(QWidget):
             ("&Nueva compra (Ins)", self.nueva),
             ("&Ver detalle (F4)", self.ver),
             ("Registrar &pago (F6)", self.pagar),
+            ("&Corregir (F2)", self.corregir),
             ("&Anular (Supr)", self.anular),
         ):
             boton = QPushButton(texto)
@@ -100,6 +101,7 @@ class PantallaCompras(QWidget):
         QShortcut(QKeySequence(Qt.Key_Insert), self, self.nueva)
         QShortcut(QKeySequence(Qt.Key_F4), self, self.ver)
         QShortcut(QKeySequence(Qt.Key_F6), self, self.pagar)
+        QShortcut(QKeySequence(Qt.Key_F2), self, self.corregir)
         QShortcut(QKeySequence(Qt.Key_Delete), self, self.anular)
 
         self.refrescar()
@@ -165,6 +167,19 @@ class PantallaCompras(QWidget):
         if DialogoPago(self.conexion, compra, self).exec() == QDialog.Accepted:
             self.refrescar()
 
+    def corregir(self) -> None:
+        """RN-13 (1.3.2). Encabezado en el lugar; fecha o lineas, anulando y
+        volviendo a registrar en una sola transaccion."""
+        compra = self._exigir()
+        if compra is None:
+            return
+        if compra.estado != CONFIRMADA:
+            avisar(self, "Una compra anulada no se corrige.")
+            return
+        completa = compras.obtener_compra(self.conexion, compra.id)
+        if DialogoCompra(self.conexion, completa, self, corregir=True).exec() == QDialog.Accepted:
+            self.refrescar()
+
     def anular(self) -> None:
         """RF-20. Movimientos inversos; el registro se conserva."""
         compra = self._exigir()
@@ -196,16 +211,24 @@ class DialogoCompra(QDialog):
         conexion: sqlite3.Connection,
         compra: Compra | None,
         padre: QWidget | None = None,
+        corregir: bool = False,
     ) -> None:
         super().__init__(padre)
         self.conexion = conexion
-        self.solo_lectura = compra is not None
+        self.original = compra if corregir else None
+        self.solo_lectura = compra is not None and not corregir
         self.lineas: list[LineaCompra] = []
         self.nombres: dict[int, str] = {}
         self.setWindowTitle(
-            "Compra registrada" if self.solo_lectura else "Nueva compra"
+            "Corregir compra" if corregir
+            else "Compra registrada" if self.solo_lectura
+            else "Nueva compra"
         )
-        self.resize(940, 560)
+        self.resize(940, 600)
+        self.motivo = QLineEdit()
+        self.motivo.setPlaceholderText(
+            "Que se corrige y por que: «el costo del refresco era 15, no 18»"
+        )
 
         self.proveedor = QComboBox()
         for proveedor in compras.listar_proveedores(conexion):
@@ -245,10 +268,23 @@ class DialogoCompra(QDialog):
             botones = QDialogButtonBox(
                 QDialogButtonBox.Save | QDialogButtonBox.Cancel, parent=self
             )
-            botones.button(QDialogButtonBox.Save).setText("Confirmar compra")
+            botones.button(QDialogButtonBox.Save).setText(
+                "Guardar correccion" if self.original else "Confirmar compra"
+            )
             botones.button(QDialogButtonBox.Cancel).setText("Cancelar")
             botones.accepted.connect(self.confirmar)
             botones.rejected.connect(self.reject)
+            if self.original is not None:
+                self._cargar_para_corregir(compra)
+                formulario.addRow("Motivo de la correccion:", self.motivo)
+                disposicion.addWidget(
+                    QLabel(
+                        "Si solo cambia el proveedor, el documento o la observacion, "
+                        "se corrige en el lugar. Si cambia la fecha o alguna linea, "
+                        "la compra original queda anulada y se registra la corregida; "
+                        "los pagos ya hechos pasan a la nueva."
+                    )
+                )
 
         disposicion.addWidget(self.total)
         disposicion.addWidget(botones)
@@ -296,6 +332,14 @@ class DialogoCompra(QDialog):
         fila.addWidget(agregar, alignment=Qt.AlignBottom)
         fila.addWidget(quitar, alignment=Qt.AlignBottom)
         return fila
+
+    def _cargar_para_corregir(self, compra: Compra) -> None:
+        """Todo editable, con lo que tenia la compra."""
+        self.proveedor.setCurrentIndex(self.proveedor.findData(compra.proveedor_id))
+        self.fecha.setText(compra.fecha)
+        self.documento.setText(compra.numero_documento or "")
+        self.observacion.setText(compra.observacion or "")
+        self.lineas = list(compra.lineas)
 
     def _cargar(self, compra: Compra) -> None:
         self.proveedor.setCurrentIndex(self.proveedor.findData(compra.proveedor_id))
@@ -374,13 +418,46 @@ class DialogoCompra(QDialog):
             lineas=self.lineas,
         )
         try:
-            resultado = compras.registrar_compra(self.conexion, compra)
+            if self.original is None:
+                resultado = compras.registrar_compra(self.conexion, compra)
+            elif not self._cambio_fecha_o_lineas(compra):
+                compras.modificar_encabezado(
+                    self.conexion,
+                    self.original.id,
+                    compra.proveedor_id,
+                    compra.numero_documento,
+                    compra.observacion,
+                )
+                self.accept()
+                return
+            else:
+                if not confirmar(
+                    self,
+                    "La compra original queda anulada y se registra la corregida. "
+                    "Los pagos ya hechos pasan a la nueva. ¿Seguimos?",
+                ):
+                    return
+                resultado = compras.corregir_compra(
+                    self.conexion, self.original.id, compra, self.motivo.text()
+                )
         except ErrorServicio as error:
             avisar(self, str(error))
             return
         if resultado.avisos:
             self._avisar_margenes(resultado.avisos)
         self.accept()
+
+    def _cambio_fecha_o_lineas(self, compra: Compra) -> bool:
+        def firma(lineas):
+            return sorted(
+                (l.producto_id, l.cant_presentacion, l.unid_x_presentacion,
+                 l.costo_present_usd, l.fecha_vencimiento or "")
+                for l in lineas
+            )
+        return (
+            compra.fecha != self.original.fecha
+            or firma(compra.lineas) != firma(self.original.lineas)
+        )
 
     def _avisar_margenes(self, avisos: list[compras.AvisoMargen]) -> None:
         """El nuevo costo dejo precios cortos: se ofrece aplicar los sugeridos.

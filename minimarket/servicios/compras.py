@@ -135,37 +135,48 @@ def registrar_compra(conexion: sqlite3.Connection, compra: Compra) -> ResultadoC
     debajo de su margen objetivo, para que la pantalla los ofrezca a revision.
     """
     servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)  # RF-58
+    productos = _preparar(conexion, compra)
+    with transaccion(conexion):
+        _registrar(conexion, compra, productos)
+    # Fuera de la transaccion: `v_ultimo_costo` ya ve la compra confirmada.
+    return ResultadoCompra(compra.id, revisar_margenes(conexion, productos.values()))
+
+
+def _preparar(conexion: sqlite3.Connection, compra: Compra) -> dict[int, Producto]:
+    """Valida y completa el encabezado; no toca la base."""
     productos = _validar(conexion, compra)
     compra.tasa_id = _tasa_id(conexion, compra.fecha)
     compra.total_usd = compra.total_calculado
     compra.saldo_pendiente_usd = compra.total_usd
     compra.estado = CONFIRMADA
+    return productos
 
-    with transaccion(conexion):
-        compra.id = repo_compra.crear(conexion, compra)
-        for linea in compra.lineas:
-            if productos[linea.producto_id].maneja_vencimiento:
-                # RF-21: el lote nace de la fecha de vencimiento de la linea.
-                linea.lote_id = repo_inventario.obtener_o_crear_lote(
-                    conexion, linea.producto_id, linea.fecha_vencimiento
-                )
-            repo_compra.agregar_linea(conexion, compra.id, linea)
-            repo_inventario.registrar_movimiento(
-                conexion,
-                Movimiento(
-                    producto_id=linea.producto_id,
-                    lote_id=linea.lote_id,
-                    tipo=COMPRA,
-                    cantidad=linea.cantidad_unidades,  # RN-12: entrada, positiva
-                    costo_unitario_usd=linea.costo_unitario_usd,  # RN-14
-                    referencia_tipo=REF_COMPRA,
-                    referencia_id=compra.id,
-                    usuario_id=compra.usuario_id,
-                ),
+
+def _registrar(
+    conexion: sqlite3.Connection, compra: Compra, productos: dict[int, Producto]
+) -> None:
+    """El cuerpo de la compra, dentro de una transaccion que abre el que llama."""
+    compra.id = repo_compra.crear(conexion, compra)
+    for linea in compra.lineas:
+        if productos[linea.producto_id].maneja_vencimiento:
+            # RF-21: el lote nace de la fecha de vencimiento de la linea.
+            linea.lote_id = repo_inventario.obtener_o_crear_lote(
+                conexion, linea.producto_id, linea.fecha_vencimiento
             )
-
-    # Fuera de la transaccion: `v_ultimo_costo` ya ve la compra confirmada.
-    return ResultadoCompra(compra.id, revisar_margenes(conexion, productos.values()))
+        repo_compra.agregar_linea(conexion, compra.id, linea)
+        repo_inventario.registrar_movimiento(
+            conexion,
+            Movimiento(
+                producto_id=linea.producto_id,
+                lote_id=linea.lote_id,
+                tipo=COMPRA,
+                cantidad=linea.cantidad_unidades,  # RN-12: entrada, positiva
+                costo_unitario_usd=linea.costo_unitario_usd,  # RN-14
+                referencia_tipo=REF_COMPRA,
+                referencia_id=compra.id,
+                usuario_id=compra.usuario_id,
+            ),
+        )
 
 
 def revisar_margenes(
@@ -220,13 +231,7 @@ def anular_compra(
             "proveedor o registra la devolucion como una perdida."
         )
 
-    entradas = [
-        movimiento
-        for movimiento in repo_inventario.movimientos_de_referencia(
-            conexion, REF_COMPRA, compra_id
-        )
-        if movimiento.tipo == COMPRA
-    ]
+    entradas = _entradas_de(conexion, compra_id)
     for entrada in entradas:
         disponible = repo_inventario.existencia(conexion, entrada.producto_id)
         if disponible < entrada.cantidad:
@@ -234,35 +239,170 @@ def anular_compra(
             raise ErrorCompra(
                 f"No se puede anular: de «{producto.nombre}» quedan {disponible} "
                 f"unidades y la compra ingreso {entrada.cantidad}. Parte de la "
-                "mercancia ya salio. Corregilo con un ajuste de inventario."
+                "mercancia ya salio. Usa «Corregir» para cambiar cantidades o "
+                "costos, o registra la diferencia como una perdida."
             )
 
     with transaccion(conexion):
-        for entrada in entradas:
-            repo_inventario.registrar_movimiento(
-                conexion,
-                Movimiento(
-                    producto_id=entrada.producto_id,
-                    lote_id=entrada.lote_id,
-                    tipo=ANULACION_COMPRA,
-                    cantidad=-entrada.cantidad,
-                    costo_unitario_usd=entrada.costo_unitario_usd,  # RN-14
-                    referencia_tipo=REF_COMPRA,
-                    referencia_id=compra_id,
-                    usuario_id=usuario_id,
-                    observacion=motivo,
-                ),
-            )
-        repo_compra.anular(conexion, compra_id, motivo)
-        auditoria.registrar(  # RF-59
+        _anular(conexion, compra, entradas, motivo, usuario_id)
+
+
+def _entradas_de(conexion: sqlite3.Connection, compra_id: int) -> list[Movimiento]:
+    return [
+        movimiento
+        for movimiento in repo_inventario.movimientos_de_referencia(
+            conexion, REF_COMPRA, compra_id
+        )
+        if movimiento.tipo == COMPRA
+    ]
+
+
+def _anular(
+    conexion: sqlite3.Connection,
+    compra: Compra,
+    entradas: list[Movimiento],
+    motivo: str,
+    usuario_id: int,
+) -> None:
+    """Los movimientos inversos y el cambio de estado, dentro de una transaccion."""
+    for entrada in entradas:
+        repo_inventario.registrar_movimiento(
             conexion,
-            usuario_id,
-            auditoria.ANULACION_COMPRA,
+            Movimiento(
+                producto_id=entrada.producto_id,
+                lote_id=entrada.lote_id,
+                tipo=ANULACION_COMPRA,
+                cantidad=-entrada.cantidad,
+                costo_unitario_usd=entrada.costo_unitario_usd,  # RN-14
+                referencia_tipo=REF_COMPRA,
+                referencia_id=compra.id,
+                usuario_id=usuario_id,
+                observacion=motivo,
+            ),
+        )
+    repo_compra.anular(conexion, compra.id, motivo)
+    auditoria.registrar(  # RF-59
+        conexion,
+        usuario_id,
+        auditoria.ANULACION_COMPRA,
+        "compra",
+        compra.id,
+        antes={"estado": CONFIRMADA, "total_usd": compra.total_usd},
+        despues={"motivo": motivo},
+    )
+
+
+# --- Corregir una compra (1.3.2) ---------------------------------------------
+
+
+def modificar_encabezado(
+    conexion: sqlite3.Connection,
+    compra_id: int,
+    proveedor_id: int,
+    numero_documento: str | None,
+    observacion: str | None,
+) -> None:
+    """Proveedor, numero de documento u observacion: no mueven dinero ni
+    inventario, se corrigen en el lugar con su asiento (RF-59)."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
+    compra = repo_compra.obtener(conexion, compra_id)
+    if compra is None:
+        raise ErrorCompra("La compra ya no existe.")
+    if compra.estado != CONFIRMADA:
+        raise ErrorCompra("Una compra anulada no se corrige.")
+    if repo_proveedor.obtener(conexion, proveedor_id) is None:
+        raise ErrorCompra("Elegi un proveedor valido.")
+    numero_documento = (numero_documento or "").strip() or None
+    observacion = (observacion or "").strip() or None
+    with transaccion(conexion):
+        repo_compra.actualizar_encabezado(
+            conexion, compra_id, proveedor_id, numero_documento, observacion
+        )
+        auditoria.registrar(
+            conexion,
+            usuario_actual(),
+            auditoria.CAMBIO_COMPRA,
             "compra",
             compra_id,
-            antes={"estado": CONFIRMADA, "total_usd": compra.total_usd},
-            despues={"motivo": motivo},
+            antes={
+                "proveedor_id": compra.proveedor_id,
+                "numero_documento": compra.numero_documento,
+                "observacion": compra.observacion,
+            },
+            despues={
+                "proveedor_id": proveedor_id,
+                "numero_documento": numero_documento,
+                "observacion": observacion,
+            },
         )
+
+
+def corregir_compra(
+    conexion: sqlite3.Connection, compra_id: int, corregida: Compra, motivo: str
+) -> ResultadoCompra:
+    """RN-13. Cambiar fecha, cantidades, costos o productos de una compra.
+
+    Nada se modifica: la compra original queda anulada con sus movimientos
+    inversos, y la corregida se registra como una compra nueva, en la misma
+    transaccion. Funciona aunque parte de la mercancia ya se haya vendido,
+    porque lo que importa es donde termina la existencia, no por donde pasa:
+    si al final algun producto queda en negativo, es que se vendio mas de lo
+    que la compra corregida dice que entro, y se rechaza con ese mensaje.
+
+    Los pagos ya hechos al proveedor pasan a la compra nueva; su saldo es el
+    total corregido menos lo pagado.
+    """
+    servicio_usuarios.exigir(conexion, REGISTRAR_COMPRAS)
+    usuario_id = usuario_actual()
+    original = repo_compra.obtener(conexion, compra_id)
+    if original is None:
+        raise ErrorCompra("La compra ya no existe.")
+    if original.estado != CONFIRMADA:
+        raise ErrorCompra("Una compra anulada no se corrige.")
+    if not motivo.strip():
+        raise ErrorCompra("Indica que se corrige y por que.")
+    productos = _preparar(conexion, corregida)
+    pagado = sum((p.monto_usd for p in repo_compra.pagos_de(conexion, compra_id)), Decimal(0))
+    if pagado > corregida.total_usd:
+        raise ErrorCompra(
+            f"Al proveedor ya se le pagaron {pagado} USD y la compra corregida "
+            f"suma {corregida.total_usd} USD. Revisa los montos."
+        )
+    corregida.saldo_pendiente_usd = corregida.total_usd - pagado
+    entradas = _entradas_de(conexion, compra_id)
+
+    with transaccion(conexion):
+        _registrar(conexion, corregida, productos)
+        _anular(
+            conexion,
+            original,
+            entradas,
+            f"Corregida por la compra #{corregida.id}: {motivo.strip()}",
+            usuario_id,
+        )
+        repo_compra.reasignar_pagos(conexion, compra_id, corregida.id)
+        afectados = {e.producto_id for e in entradas} | set(productos)
+        for producto_id in afectados:
+            existencia = repo_inventario.existencia(conexion, producto_id)
+            if existencia < 0:
+                nombre = (productos.get(producto_id) or repo_producto.obtener(conexion, producto_id)).nombre
+                raise ErrorCompra(  # deshace todo
+                    f"De «{nombre}» ya se vendieron mas unidades de las que la "
+                    f"compra corregida dice que entraron (quedarian {existencia}). "
+                    "Revisa la cantidad de esa linea."
+                )
+        auditoria.registrar(
+            conexion,
+            usuario_id,
+            auditoria.CORRECCION_COMPRA,
+            "compra",
+            compra_id,
+            antes={"total_usd": original.total_usd, "fecha": original.fecha,
+                   "lineas": len(original.lineas)},
+            despues={"compra_nueva": corregida.id, "total_usd": corregida.total_usd,
+                     "fecha": corregida.fecha, "motivo": motivo.strip()},
+        )
+    return ResultadoCompra(corregida.id, revisar_margenes(conexion, productos.values()))
 
 
 # --- Pagos a proveedores (RF-19) --------------------------------------------
