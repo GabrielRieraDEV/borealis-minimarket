@@ -22,6 +22,7 @@ from minimarket.dominio.reportes import (
 )
 from minimarket.dominio.venta import MEDIOS
 from minimarket.dominio.usuario import REGISTRAR_GASTOS
+from minimarket.infra import auditoria
 from minimarket.servicios import ErrorServicio, usuario_actual
 from minimarket.servicios import tasa as servicio_tasa
 from minimarket.servicios import usuarios as servicio_usuarios
@@ -99,7 +100,9 @@ def desglose_del_mes(conexion: sqlite3.Connection, periodo: str) -> list[Renglon
     """Todo lo que pesa en un mes, ya valuado, para la pantalla."""
     servicio_usuarios.exigir(conexion, REGISTRAR_GASTOS)
     renglones = [
-        RenglonGasto(g.periodo, g.categoria, g.descripcion, g.monto_usd, "cargado")
+        RenglonGasto(
+            g.periodo, g.categoria, g.descripcion, g.monto_usd, "cargado", gasto_id=g.id
+        )
         for g in repo_gasto.listar(conexion, periodo, periodo)
     ]
     cobrado = _cobrado_por_medio(conexion, periodo)
@@ -111,9 +114,197 @@ def desglose_del_mes(conexion: sqlite3.Connection, periodo: str) -> list[Renglon
                 gasto.descripcion,
                 gasto.valuar(cobrado),
                 describir_recurrente(gasto),
+                recurrente_id=gasto.id,
             )
         )
     return renglones
+
+
+# --- Corregir (1.3.1) -------------------------------------------------------
+#
+# El cliente cargo gastos «de este mes» que eran de todos los meses, y
+# montos equivocados, y no tenia como arreglarlo. Los gastos no mueven
+# inventario ni caja: son un cuaderno del dueno. Se corrigen en el lugar,
+# con el asiento de bitacora que dice como estaban antes (RF-59). Quitar es
+# la unica baja fisica del sistema, y por eso el asiento lleva el gasto
+# entero: nada se pierde, cambia de tabla.
+
+
+def obtener(conexion: sqlite3.Connection, gasto_id: int) -> GastoOperativo:
+    gasto = repo_gasto.obtener(conexion, gasto_id)
+    if gasto is None:
+        raise ErrorGasto("Ese gasto ya no existe.")
+    return gasto
+
+
+def modificar(
+    conexion: sqlite3.Connection,
+    gasto_id: int,
+    categoria: str,
+    descripcion: str,
+    monto_usd: Decimal,
+    periodo: str,
+) -> GastoOperativo:
+    servicio_usuarios.exigir(conexion, REGISTRAR_GASTOS)
+    anterior = obtener(conexion, gasto_id)
+    periodo = periodo.strip()
+    if categoria not in CATEGORIAS_GASTO:
+        raise ErrorGasto("Elegi una categoria de gasto valida.")
+    if not descripcion.strip():
+        raise ErrorGasto("El gasto necesita una descripcion.")
+    if monto_usd <= 0:
+        raise ErrorGasto("El monto del gasto debe ser mayor que cero.")
+    if not PERIODO.match(periodo):
+        raise ErrorGasto("El periodo se escribe como AAAA-MM, por ejemplo 2026-08.")
+    nuevo = GastoOperativo(
+        id=gasto_id,
+        categoria=categoria,
+        descripcion=descripcion.strip(),
+        monto_usd=monto_usd,
+        periodo=periodo,
+        fecha=anterior.fecha,
+        usuario_id=anterior.usuario_id,
+    )
+    with transaccion(conexion):
+        repo_gasto.actualizar(conexion, nuevo)
+        _asiento(conexion, "gasto_operativo", gasto_id, _datos(anterior), _datos(nuevo))
+    return nuevo
+
+
+def quitar(conexion: sqlite3.Connection, gasto_id: int) -> None:
+    """Se cargo por error. El asiento guarda el gasto completo."""
+    servicio_usuarios.exigir(conexion, REGISTRAR_GASTOS)
+    anterior = obtener(conexion, gasto_id)
+    with transaccion(conexion):
+        repo_gasto.eliminar(conexion, gasto_id)
+        _asiento(conexion, "gasto_operativo", gasto_id, _datos(anterior), {"quitado": True})
+
+
+def convertir_en_mensual(conexion: sqlite3.Connection, gasto_id: int) -> GastoRecurrente:
+    """Un gasto cargado como «de este mes» que en realidad es de todos los meses.
+
+    Pasa a fijo mensual desde su mismo mes, y el suelto se quita para no
+    contarlo dos veces. Todo en una transaccion.
+    """
+    servicio_usuarios.exigir(conexion, REGISTRAR_GASTOS)
+    anterior = obtener(conexion, gasto_id)
+    recurrente = GastoRecurrente(
+        categoria=anterior.categoria,
+        descripcion=anterior.descripcion,
+        tipo=FIJO,
+        monto_usd=anterior.monto_usd,
+        desde_periodo=anterior.periodo,
+        usuario_id=usuario_actual(),
+    )
+    with transaccion(conexion):
+        identificador = repo_gasto.crear_recurrente(conexion, recurrente)
+        repo_gasto.eliminar(conexion, gasto_id)
+        _asiento(
+            conexion,
+            "gasto_operativo",
+            gasto_id,
+            _datos(anterior),
+            {"convertido_en_recurrente": identificador},
+        )
+    return repo_gasto.obtener_recurrente(conexion, identificador)
+
+
+def modificar_recurrente(
+    conexion: sqlite3.Connection,
+    gasto_id: int,
+    categoria: str,
+    descripcion: str,
+    monto_usd: Decimal = Decimal(0),
+    porcentaje: Decimal = Decimal(0),
+    medio: str | None = None,
+) -> GastoRecurrente:
+    """Corrige un gasto de todos los meses.
+
+    Si cambia el valor (monto, porcentaje o medio) y el gasto ya rigio en
+    meses anteriores, el viejo se cierra en el mes pasado y nace uno nuevo
+    desde este mes: agosto sigue diciendo lo que agosto pago. Si solo cambia
+    el texto, o el gasto empezo este mismo mes, se corrige en el lugar.
+    """
+    servicio_usuarios.exigir(conexion, REGISTRAR_GASTOS)
+    anterior = repo_gasto.obtener_recurrente(conexion, gasto_id)
+    if anterior is None:
+        raise ErrorGasto("Ese gasto de todos los meses ya no existe.")
+    if anterior.hasta_periodo is not None:
+        raise ErrorGasto("Ese gasto ya esta dado de baja; carga uno nuevo.")
+    if categoria not in CATEGORIAS_GASTO:
+        raise ErrorGasto("Elegi una categoria de gasto valida.")
+    if not descripcion.strip():
+        raise ErrorGasto("El gasto necesita una descripcion.")
+    if anterior.tipo == FIJO:
+        if monto_usd <= 0:
+            raise ErrorGasto("El monto mensual debe ser mayor que cero.")
+        porcentaje, medio = Decimal(0), None
+    else:
+        if porcentaje <= 0 or porcentaje >= 100:
+            raise ErrorGasto("El porcentaje tiene que estar entre 0 y 100.")
+        if medio is not None and medio not in MEDIOS:
+            raise ErrorGasto("Elegi un medio de pago valido, o todos.")
+        monto_usd = Decimal(0)
+
+    mes = servicio_tasa.hoy()[:7]
+    cambia_valor = (monto_usd, porcentaje, medio) != (
+        anterior.monto_usd, anterior.porcentaje, anterior.medio
+    )
+    with transaccion(conexion):
+        if cambia_valor and anterior.desde_periodo < mes:
+            repo_gasto.cerrar_recurrente(conexion, gasto_id, _mes_anterior(mes))
+            nuevo = GastoRecurrente(
+                categoria=categoria,
+                descripcion=descripcion.strip(),
+                tipo=anterior.tipo,
+                monto_usd=monto_usd,
+                porcentaje=porcentaje,
+                medio=medio,
+                desde_periodo=mes,
+                usuario_id=usuario_actual(),
+            )
+            identificador = repo_gasto.crear_recurrente(conexion, nuevo)
+        else:
+            identificador = gasto_id
+            repo_gasto.actualizar_recurrente(
+                conexion,
+                GastoRecurrente(
+                    id=gasto_id,
+                    categoria=categoria,
+                    descripcion=descripcion.strip(),
+                    tipo=anterior.tipo,
+                    monto_usd=monto_usd,
+                    porcentaje=porcentaje,
+                    medio=medio,
+                    desde_periodo=anterior.desde_periodo,
+                    usuario_id=anterior.usuario_id,
+                ),
+            )
+        _asiento(
+            conexion,
+            "gasto_recurrente",
+            gasto_id,
+            _datos(anterior),
+            {"categoria": categoria, "descripcion": descripcion, "monto_usd": monto_usd,
+             "porcentaje": porcentaje, "medio": medio, "vigente_desde": identificador},
+        )
+    return repo_gasto.obtener_recurrente(conexion, identificador)
+
+
+def _asiento(conexion, entidad: str, entidad_id: int, antes: dict, despues: dict) -> None:
+    auditoria.registrar(
+        conexion, usuario_actual(), auditoria.CAMBIO_GASTO, entidad, entidad_id,
+        antes=antes, despues=despues,
+    )
+
+
+def _datos(gasto) -> dict:
+    return {k: v for k, v in vars(gasto).items() if k != "id"}
+
+
+def _mes_anterior(periodo: str) -> str:
+    anio, mes = int(periodo[:4]), int(periodo[5:])
+    return f"{anio - 1}-12" if mes == 1 else f"{anio}-{mes - 1:02d}"
 
 
 def describir_recurrente(gasto: GastoRecurrente) -> str:

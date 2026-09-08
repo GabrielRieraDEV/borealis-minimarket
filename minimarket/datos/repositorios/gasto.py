@@ -162,3 +162,40 @@ def cerrar_recurrente(
         "UPDATE gasto_recurrente SET hasta_periodo = ? WHERE id = ?",
         (hasta_periodo, gasto_id),
     )
+
+
+# --- Corregir (1.3.1) -------------------------------------------------------
+
+
+def actualizar(conexion: sqlite3.Connection, gasto: GastoOperativo) -> None:
+    conexion.execute(
+        """UPDATE gasto_operativo SET categoria = ?, descripcion = ?, monto_usd = ?,
+                                     periodo = ? WHERE id = ?""",
+        (
+            gasto.categoria,
+            gasto.descripcion,
+            a_entero(gasto.monto_usd, ESCALA_TOTAL),
+            gasto.periodo,
+            gasto.id,
+        ),
+    )
+
+
+def eliminar(conexion: sqlite3.Connection, gasto_id: int) -> None:
+    """La unica baja fisica del sistema: el gasto entero queda en la bitacora."""
+    conexion.execute("DELETE FROM gasto_operativo WHERE id = ?", (gasto_id,))
+
+
+def actualizar_recurrente(conexion: sqlite3.Connection, gasto: GastoRecurrente) -> None:
+    conexion.execute(
+        """UPDATE gasto_recurrente SET categoria = ?, descripcion = ?, monto_usd = ?,
+                                      porcentaje = ?, medio = ? WHERE id = ?""",
+        (
+            gasto.categoria,
+            gasto.descripcion,
+            a_entero(gasto.monto_usd, ESCALA_TOTAL),
+            a_entero(gasto.porcentaje, ESCALA_PORCENTAJE),
+            gasto.medio,
+            gasto.id,
+        ),
+    )

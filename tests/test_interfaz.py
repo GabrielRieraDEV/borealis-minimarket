@@ -286,3 +286,29 @@ def test_el_cobro_reparte_el_vuelto(aplicacion, base_demo):
     assert cobro.tabla_vuelto.rowCount() == 1
     assert "el resto" in cobro.saldo.text()
     assert venta.vuelto_por_declarar_usd == Decimal("0.95")
+
+
+def test_los_gastos_se_editan_desde_la_pantalla(aplicacion, base_demo, monkeypatch):
+    from decimal import Decimal
+
+    from minimarket.ui import gastos as ui_gastos
+
+    monkeypatch.setattr(ui_gastos, "confirmar", lambda *a: True)
+    pantalla = ui_gastos.PantallaGastos(base_demo)
+    suelto = next(i for i, r in enumerate(pantalla.renglones) if r.gasto_id is not None)
+    pantalla.tabla_mes.selectRow(suelto)
+    gasto = pantalla.renglones[suelto]
+
+    ficha = ui_gastos.DialogoGasto(base_demo, pantalla, __import__("minimarket.servicios.gastos", fromlist=["obtener"]).obtener(base_demo, gasto.gasto_id))
+    assert ficha.windowTitle() == "Corregir gasto"
+    ficha.monto.setText("45")
+    ficha.guardar()
+    pantalla.refrescar()
+    assert any(r.gasto_id == gasto.gasto_id and r.monto_usd == Decimal(45) for r in pantalla.renglones)
+
+    pantalla.tabla_mes.selectRow(
+        next(i for i, r in enumerate(pantalla.renglones) if r.gasto_id == gasto.gasto_id)
+    )
+    pantalla.convertir()
+    assert all(r.gasto_id != gasto.gasto_id for r in pantalla.renglones)
+    assert any(g.descripcion == gasto.descripcion and g.monto_usd == Decimal(45) for g in pantalla.recurrentes)

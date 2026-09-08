@@ -164,6 +164,8 @@ class RenglonGasto:
     descripcion: str
     monto_usd: Decimal
     origen: str  # "cargado" | "fijo mensual" | "3 % de lo cobrado por punto"
+    gasto_id: int | None = None  # el suelto, si lo es
+    recurrente_id: int | None = None  # el de todos los meses, si lo es
 
 
 @dataclass(frozen=True)

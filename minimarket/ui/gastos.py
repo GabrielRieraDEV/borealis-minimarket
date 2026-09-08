@@ -34,6 +34,7 @@ from minimarket.dominio.reportes import (
     CATEGORIAS_GASTO,
     FIJO,
     PORCENTAJE,
+    GastoOperativo,
     GastoRecurrente,
     RenglonGasto,
 )
@@ -66,10 +67,13 @@ class PantallaGastos(QWidget):
         self.tabla_recurrentes = _tabla(COLUMNAS_RECURRENTES, estirar=1)
         boton_recurrente = QPushButton("&Nuevo gasto de todos los meses")
         boton_recurrente.clicked.connect(self.nuevo_recurrente)
+        boton_editar_recurrente = QPushButton("Editar el seleccionado")
+        boton_editar_recurrente.clicked.connect(self.editar_recurrente)
         boton_baja = QPushButton("Dar de &baja el seleccionado")
         boton_baja.clicked.connect(self.dar_de_baja)
         botones_recurrentes = QHBoxLayout()
         botones_recurrentes.addWidget(boton_recurrente)
+        botones_recurrentes.addWidget(boton_editar_recurrente)
         botones_recurrentes.addWidget(boton_baja)
         botones_recurrentes.addStretch()
 
@@ -93,11 +97,25 @@ class PantallaGastos(QWidget):
         self.resumen = QLabel()
         boton_mes = QPushButton("&Registrar un gasto de este mes (Ins)")
         boton_mes.clicked.connect(self.registrar)
+        boton_editar = QPushButton("&Editar (F4)")
+        boton_editar.clicked.connect(self.editar)
+        boton_quitar = QPushButton("&Quitar (Supr)")
+        boton_quitar.setToolTip("Para lo que se cargo por error. Queda en la bitacora.")
+        boton_quitar.clicked.connect(self.quitar)
+        boton_convertir = QPushButton("Convertir en gasto de todos los &meses")
+        boton_convertir.setToolTip(
+            "Si se cargo como «de este mes» pero es alquiler, sueldo o servicio "
+            "que se repite: pasa arriba, desde este mes, y deja de estar suelto."
+        )
+        boton_convertir.clicked.connect(self.convertir)
         fila_mes = QHBoxLayout()
         fila_mes.addWidget(QLabel("Mes:"))
         fila_mes.addWidget(self.periodo)
         fila_mes.addStretch()
         fila_mes.addWidget(boton_mes)
+        fila_mes.addWidget(boton_editar)
+        fila_mes.addWidget(boton_quitar)
+        fila_mes.addWidget(boton_convertir)
 
         self.grupo_mes = QGroupBox()
         abajo = QVBoxLayout(self.grupo_mes)
@@ -110,7 +128,93 @@ class PantallaGastos(QWidget):
         disposicion.addWidget(self.grupo_mes, stretch=1)
 
         QShortcut(QKeySequence(Qt.Key_Insert), self, self.registrar)
+        QShortcut(QKeySequence(Qt.Key_F4), self, self.editar)
+        QShortcut(QKeySequence(Qt.Key_Delete), self.tabla_mes, self.quitar)
         self.refrescar()
+
+    def _renglon(self) -> RenglonGasto | None:
+        fila = self.tabla_mes.currentRow()
+        if not 0 <= fila < len(self.renglones):
+            avisar(self, "Elegi un gasto de la tabla del mes.")
+            return None
+        return self.renglones[fila]
+
+    def editar(self) -> None:
+        renglon = self._renglon()
+        if renglon is None:
+            return
+        if renglon.recurrente_id is not None:
+            self._editar_recurrente(renglon.recurrente_id)
+            return
+        try:
+            gasto = servicio_gastos.obtener(self.conexion, renglon.gasto_id)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        if DialogoGasto(self.conexion, self, gasto).exec() == QDialog.Accepted:
+            self.refrescar()
+
+    def quitar(self) -> None:
+        renglon = self._renglon()
+        if renglon is None:
+            return
+        if renglon.recurrente_id is not None:
+            avisar(
+                self,
+                "Ese es un gasto de todos los meses: se da de baja desde la tabla "
+                "de arriba, y deja de contar desde el mes que viene.",
+            )
+            return
+        if not confirmar(
+            self,
+            f"¿Quitar «{renglon.descripcion}» ({formato(renglon.monto_usd)} USD) de "
+            f"{renglon.periodo}? Queda anotado en la bitacora.",
+        ):
+            return
+        try:
+            servicio_gastos.quitar(self.conexion, renglon.gasto_id)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        self.refrescar()
+
+    def convertir(self) -> None:
+        renglon = self._renglon()
+        if renglon is None:
+            return
+        if renglon.recurrente_id is not None:
+            avisar(self, "Ese gasto ya es de todos los meses.")
+            return
+        if not confirmar(
+            self,
+            f"«{renglon.descripcion}» ({formato(renglon.monto_usd)} USD) pasa a ser un "
+            f"gasto fijo de todos los meses desde {renglon.periodo}, y deja de estar "
+            "suelto. ¿Seguimos?",
+        ):
+            return
+        try:
+            servicio_gastos.convertir_en_mensual(self.conexion, renglon.gasto_id)
+        except ErrorServicio as error:
+            avisar(self, str(error))
+            return
+        self.refrescar()
+
+    def editar_recurrente(self) -> None:
+        fila = self.tabla_recurrentes.currentRow()
+        if not 0 <= fila < len(self.recurrentes):
+            avisar(self, "Elegi un gasto de la tabla de arriba.")
+            return
+        self._editar_recurrente(self.recurrentes[fila].id)
+
+    def _editar_recurrente(self, gasto_id: int) -> None:
+        gasto = next((g for g in self.recurrentes if g.id == gasto_id), None)
+        if gasto is None:
+            return
+        if gasto.hasta_periodo is not None:
+            avisar(self, f"«{gasto.descripcion}» ya esta dado de baja; carga uno nuevo.")
+            return
+        if DialogoGastoRecurrente(self.conexion, self, gasto).exec() == QDialog.Accepted:
+            self.refrescar()
 
     def refrescar(self) -> None:
         periodo = self.periodo.text().strip() or servicio_tasa.hoy()[:7]
@@ -192,11 +296,17 @@ class DialogoGastoRecurrente(QDialog):
     """Un gasto que rige todos los meses: fijo o porcentaje de lo cobrado."""
 
     def __init__(
-        self, conexion: sqlite3.Connection, padre: QWidget | None = None
+        self,
+        conexion: sqlite3.Connection,
+        padre: QWidget | None = None,
+        gasto: GastoRecurrente | None = None,
     ) -> None:
         super().__init__(padre)
         self.conexion = conexion
-        self.setWindowTitle("Gasto de todos los meses")
+        self.gasto = gasto
+        self.setWindowTitle(
+            "Gasto de todos los meses" if gasto is None else "Corregir gasto de todos los meses"
+        )
         self.setMinimumWidth(460)
 
         self.fijo = QRadioButton("Monto fijo por mes (alquiler, sueldos, internet)")
@@ -238,8 +348,28 @@ class DialogoGastoRecurrente(QDialog):
         disposicion.addWidget(self.fijo)
         disposicion.addWidget(self.porcentual)
         disposicion.addLayout(self.formulario)
+        if gasto is not None:
+            self._cargar(gasto)
+            disposicion.addWidget(
+                QLabel(
+                    "Si cambia el monto o el porcentaje, los meses anteriores quedan "
+                    "como estaban y el valor nuevo rige desde este mes."
+                )
+            )
         disposicion.addWidget(botones)
         self._segun_tipo()
+
+    def _cargar(self, gasto: GastoRecurrente) -> None:
+        (self.fijo if gasto.tipo == FIJO else self.porcentual).setChecked(True)
+        for boton in (self.fijo, self.porcentual):
+            boton.setEnabled(False)  # el tipo no se cambia: se da de baja y se crea otro
+        self.categoria.setCurrentText(gasto.categoria)
+        self.descripcion.setText(gasto.descripcion)
+        self.monto.setText(str(gasto.monto_usd))
+        self.porcentaje.setText(str(gasto.porcentaje.normalize()))
+        self.medio.setCurrentIndex(self.medio.findData(gasto.medio))
+        self.desde.setText(gasto.desde_periodo)
+        self.desde.setReadOnly(True)
 
     def _segun_tipo(self) -> None:
         es_fijo = self.fijo.isChecked()
@@ -254,16 +384,22 @@ class DialogoGastoRecurrente(QDialog):
     def guardar(self) -> None:
         es_fijo = self.fijo.isChecked()
         try:
-            servicio_gastos.registrar_recurrente(
-                self.conexion,
+            valores = dict(
                 categoria=self.categoria.currentText(),
                 descripcion=self.descripcion.text(),
-                tipo=FIJO if es_fijo else PORCENTAJE,
                 monto_usd=a_decimal(self.monto.text(), "el monto mensual") if es_fijo else Decimal(0),
                 porcentaje=Decimal(0) if es_fijo else a_decimal(self.porcentaje.text(), "el porcentaje"),
                 medio=None if es_fijo else self.medio.currentData(),
-                desde_periodo=self.desde.text().strip(),
             )
+            if self.gasto is None:
+                servicio_gastos.registrar_recurrente(
+                    self.conexion,
+                    tipo=FIJO if es_fijo else PORCENTAJE,
+                    desde_periodo=self.desde.text().strip(),
+                    **valores,
+                )
+            else:
+                servicio_gastos.modificar_recurrente(self.conexion, self.gasto.id, **valores)
         except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return
@@ -274,11 +410,17 @@ class DialogoGasto(QDialog):
     """RF-46. Un gasto de un mes concreto: lo que no se repite."""
 
     def __init__(
-        self, conexion: sqlite3.Connection, padre: QWidget | None = None
+        self,
+        conexion: sqlite3.Connection,
+        padre: QWidget | None = None,
+        gasto: GastoOperativo | None = None,
     ) -> None:
         super().__init__(padre)
         self.conexion = conexion
-        self.setWindowTitle("Registrar un gasto de este mes")
+        self.gasto = gasto
+        self.setWindowTitle(
+            "Registrar un gasto de este mes" if gasto is None else "Corregir gasto"
+        )
 
         hoy = servicio_tasa.hoy()
         self.categoria = QComboBox()
@@ -291,7 +433,9 @@ class DialogoGasto(QDialog):
         botones = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel, parent=self
         )
-        botones.button(QDialogButtonBox.Save).setText("Registrar gasto")
+        botones.button(QDialogButtonBox.Save).setText(
+            "Registrar gasto" if gasto is None else "Guardar correccion"
+        )
         botones.button(QDialogButtonBox.Cancel).setText("Cancelar")
         botones.accepted.connect(self.guardar)
         botones.rejected.connect(self.reject)
@@ -302,6 +446,13 @@ class DialogoGasto(QDialog):
         formulario.addRow("Monto USD:", self.monto)
         formulario.addRow("Mes (AAAA-MM):", self.periodo)
         formulario.addRow("Fecha de carga:", self.fecha)
+        if gasto is not None:
+            self.categoria.setCurrentText(gasto.categoria)
+            self.descripcion.setText(gasto.descripcion)
+            self.monto.setText(str(gasto.monto_usd))
+            self.periodo.setText(gasto.periodo)
+            self.fecha.setText(gasto.fecha)
+            self.fecha.setReadOnly(True)
 
         disposicion = QVBoxLayout(self)
         disposicion.addLayout(formulario)
@@ -315,14 +466,18 @@ class DialogoGasto(QDialog):
 
     def guardar(self) -> None:
         try:
-            servicio_gastos.registrar(
-                self.conexion,
+            valores = dict(
                 categoria=self.categoria.currentText(),
                 descripcion=self.descripcion.text(),
                 monto_usd=a_decimal(self.monto.text(), "el monto del gasto"),
                 periodo=self.periodo.text().strip(),
-                fecha=self.fecha.text().strip(),
             )
+            if self.gasto is None:
+                servicio_gastos.registrar(
+                    self.conexion, fecha=self.fecha.text().strip(), **valores
+                )
+            else:
+                servicio_gastos.modificar(self.conexion, self.gasto.id, **valores)
         except (ErrorDeCampo, ErrorServicio) as error:
             avisar(self, str(error))
             return

@@ -309,6 +309,22 @@ Para dar de baja uno (se mudaron, cambió el banco), se selecciona y **Dar de
 baja**: cuenta hasta el mes actual y deja de regir desde el siguiente. No se
 borra: los meses pasados lo siguen mostrando.
 
+Para corregirlo, **Editar el seleccionado**. Si solo cambia el texto o la
+categoría, se corrige en el lugar. Si cambia el monto o el porcentaje (subió
+el alquiler), los meses anteriores quedan como estaban y el valor nuevo rige
+desde este mes.
+
+### Corregir un gasto del mes
+
+En la tabla de abajo, con el gasto seleccionado:
+
+- **Editar (F4)**: cambiar monto, descripción, categoría o mes.
+- **Quitar (Supr)**: para lo que se cargó por error. Es lo único que el
+  sistema borra de verdad, y por eso queda anotado entero en la bitácora.
+- **Convertir en gasto de todos los meses**: para cuando se cargó el alquiler
+  como gasto «de este mes». Pasa a la tabla de arriba como fijo mensual desde
+  ese mismo mes y deja de estar suelto, así no se cuenta dos veces.
+
 **Lo que pesa en el mes.** Abajo se ve el mes completo: los gastos de todos
 los meses ya valuados, más los que se cargan sueltos con **Registrar un gasto
 de este mes** (una reparación, una multa: lo que no se repite).

@@ -128,7 +128,7 @@ primer arranque), la importación de catálogo desde CSV en `servicios/catalogo.
 `minimarket.spec` (PyInstaller onedir), `instalador/minimarket.iss` (Inno Setup),
 `herramientas/demostracion.py` y `herramientas/capturas.py`, y la documentación
 (`README.md` de instalación, `docs/manual-de-usuario.md` con capturas).
-307 pruebas.
+310 pruebas.
 
 Una fase por sesión. `pytest` completo al terminar cada una, y commit con el
 número de fase en el mensaje.
@@ -488,6 +488,14 @@ Después de la entrega (1.2.0), a pedido del cliente:
   ese margen está bajo el piso. El costo real sigue siendo el de la compra
   (RN-07): la ficha no toca el flujo de compras ni la vista `v_ultimo_costo`.
   Guardar un costo en `producto` habría creado dos fuentes de verdad.
+- **Los gastos se corrigen (1.3.1)**: editar, quitar y convertir un suelto en
+  recurrente; editar un recurrente. El cliente había cargado mal y el panel le
+  decía «bajá gastos» sin darle cómo. `gastos.quitar` es la **única baja
+  física del sistema** (regla 6 «nada se borra»): se permite porque un gasto
+  no mueve inventario ni caja, y el asiento `CAMBIO_GASTO` guarda el gasto
+  entero. Cambiar el valor de un recurrente con historia cierra el viejo en el
+  mes anterior y crea uno desde el mes actual: agosto sigue diciendo lo que
+  agosto pagó. Solo texto, o creado este mes: en el lugar.
 - **Los nombres de los reportes ya no llevan «(RF-xx)»**: los códigos están
   en los docstrings, que es donde le sirven a quien programa.
 

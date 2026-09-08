@@ -6,6 +6,8 @@ base de demostracion, y la repeticion de gastos con sus dos negativas.
 
 from decimal import Decimal
 
+import pytest
+
 
 from minimarket.dominio.reportes import ALQUILER, Equilibrio, ResultadoPeriodo
 from minimarket.servicios import gastos as servicio_gastos
@@ -208,3 +210,68 @@ def test_aplicar_el_margen_sube_solo_lo_que_esta_por_debajo(conexion, categoria,
     assert catalogo.listar_categorias(conexion)[0].margen_objetivo == D(40)
     assert catalogo.obtener_producto(conexion, producto.id).precio_venta_usd == D("1.6240")
     assert catalogo.margenes_actuales(conexion)[producto.id] == D("40.00")
+
+
+def test_los_gastos_se_corrigen_con_rastro(conexion):
+    """El cliente cargo mal y no podia arreglar. Editar, quitar y convertir."""
+    from decimal import Decimal as D
+
+    from minimarket.dominio.reportes import FIJO, OTROS, SERVICIOS
+    from minimarket.infra import auditoria
+
+    mes = servicio_tasa.hoy()[:7]
+    suelto = servicio_gastos.registrar(conexion, OTROS, "Alquiler", D(3500), periodo=mes)
+
+    # Editar: se equivoco de cero.
+    corregido = servicio_gastos.modificar(
+        conexion, suelto.id, ALQUILER, "Alquiler del local", D(350), mes
+    )
+    assert (corregido.categoria, corregido.monto_usd) == (ALQUILER, D(350))
+    assert servicio_gastos.total(conexion, f"{mes}-01", f"{mes}-31") == D(350)
+
+    # Convertir en mensual: era de todos los meses, no de este.
+    recurrente = servicio_gastos.convertir_en_mensual(conexion, suelto.id)
+    assert (recurrente.tipo, recurrente.monto_usd, recurrente.desde_periodo) == (FIJO, D(350), mes)
+    assert servicio_gastos.listar(conexion, mes, mes) == []  # el suelto ya no esta
+    assert servicio_gastos.total(conexion, f"{mes}-01", f"{mes}-31") == D(350)  # no se duplica
+
+    # Quitar: se cargo por error; queda en la bitacora entero.
+    error = servicio_gastos.registrar(conexion, SERVICIOS, "Duplicado", D(40), periodo=mes)
+    servicio_gastos.quitar(conexion, error.id)
+    assert servicio_gastos.total(conexion, f"{mes}-01", f"{mes}-31") == D(350)
+    asientos = [a for a in auditoria.listar(conexion) if a.accion == auditoria.CAMBIO_GASTO]
+    assert len(asientos) == 3
+    assert "Duplicado" in asientos[0].datos_antes  # el mas reciente primero
+    with pytest.raises(servicio_gastos.ErrorGasto, match="ya no existe"):
+        servicio_gastos.quitar(conexion, error.id)
+
+
+def test_corregir_un_recurrente_con_historia_no_reescribe_el_pasado(conexion):
+    """El alquiler subio: agosto sigue diciendo 350 y desde este mes son 400."""
+    from decimal import Decimal as D
+
+    from minimarket.dominio.reportes import FIJO
+
+    mes = servicio_tasa.hoy()[:7]
+    anterior = servicio_gastos._mes_anterior(mes)
+    viejo = servicio_gastos.registrar_recurrente(
+        conexion, ALQUILER, "Alquiler", FIJO, monto_usd=D(350), desde_periodo=anterior
+    )
+    nuevo = servicio_gastos.modificar_recurrente(
+        conexion, viejo.id, ALQUILER, "Alquiler del local", monto_usd=D(400)
+    )
+    assert nuevo.id != viejo.id and nuevo.desde_periodo == mes and nuevo.monto_usd == D(400)
+    assert servicio_gastos.total(conexion, f"{anterior}-01", f"{anterior}-28") == D(350)
+    assert servicio_gastos.total(conexion, f"{mes}-01", f"{mes}-28") == D(400)
+    # Solo texto: en el lugar, mismo id.
+    igual = servicio_gastos.modificar_recurrente(
+        conexion, nuevo.id, ALQUILER, "Alquiler (local nuevo)", monto_usd=D(400)
+    )
+    assert igual.id == nuevo.id and igual.descripcion == "Alquiler (local nuevo)"
+    # Creado este mes: cambiar el monto tambien es en el lugar.
+    este_mes = servicio_gastos.registrar_recurrente(
+        conexion, ALQUILER, "Internet", FIJO, monto_usd=D(30), desde_periodo=mes
+    )
+    assert servicio_gastos.modificar_recurrente(
+        conexion, este_mes.id, ALQUILER, "Internet", monto_usd=D(35)
+    ).id == este_mes.id
