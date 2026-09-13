@@ -512,6 +512,49 @@ Después de la entrega (1.2.0), a pedido del cliente:
 - **Los nombres de los reportes ya no llevan «(RF-xx)»**: los códigos están
   en los docstrings, que es donde le sirven a quien programa.
 
+Después de la entrega (1.4.0), a pedido del cliente:
+
+- **El total en Bs es el del anaquel, no total_usd × tasa.** Con la tasa en
+  842 un centavo de dólar son 8,42 Bs: el café de 1,6614 USD se exhibía a
+  1.400 (RN-10) y el panel cobraba 1.398,06 (1,66 × tasa), y con otros precios
+  cobraba de más. `LineaVenta.total_linea_bs` = precio al público × cantidad y
+  `Venta.total_bs` los suma; `venta.total_bs` (columna que ya existía) guarda
+  eso, y al leer una venta se usa lo guardado (`total_bs_guardado`), así las
+  anteriores a 1.4.0 siguen diciendo lo que cobraron. `Venta.multiplo` viaja
+  con la venta y lo fija `_fijar_tasa`. USD, base, IVA y ganancia no cambiaron.
+- **RN-22/23 cambiaron (el cliente lo aprobó): cada pago cubre la venta en su
+  moneda** (`Venta._cobertura`). Bolívares contra el total en Bs, dólares
+  contra el total en USD, primero Bs y el resto en proporción; lo que sobra
+  de los dólares vuelve a la tasa. Comparar todo en Bs a la tasa habría hecho
+  que 1 USD no pague una harina de 1 USD (843 Bs al público); comparar todo a
+  la tasa implícita de la venta habría regalado 117 Bs de vuelto por billete
+  de 100. Las cuentas se hacen en cruz y se redondea al final. El vuelto se
+  lleva en Bs (`vuelto_bs`, `vuelto_por_declarar_bs`); `vuelto_usd` queda
+  derivado para la columna. `vuelto_cuadra` tolera menos de un múltiplo
+  cuando hay efectivo Bs, que es lo que suma el redondeo hacia arriba.
+- **Libro de ventas: las dos columnas.** Exento, base, IVA y «Total Bs»
+  siguen en USD × tasa de la operación (RN-31); al lado va «Cobrado Bs»
+  (`FilaLibro.cobrado_bs`, lo guardado en `venta.total_bs`), que puede diferir
+  en pocos Bs. Cuando el contador elija, se saca la que sobre de
+  `COLUMNAS_LIBRO`.
+- **RN-22, RN-23 y el ejemplo C se cambiaron en el `.docx`** y el `.md` se
+  regeneró con `docs/docx2txt.py` (sale idéntico a la extracción).
+- **Enter en el cobro ya no confirma la venta** (bug desde la Fase 3, visto al
+  manejar la ventana real): al mostrarse, `QDialogButtonBox` vuelve «default»
+  al botón de aceptar aunque se le diga que no, y `QDialog` hace lo mismo con
+  el primer botón `autoDefault`. Confirmar pasó a `ActionRole` y ningún botón
+  del cobro es `autoDefault`. Las pruebas offscreen no lo veían porque no
+  mostraban el diálogo; `test_enter_en_el_monto_agrega_el_pago_y_no_confirma`
+  lo muestra.
+- **«Ventas una por una»** en Reportes (`VER_REPORTES`): cada venta, también
+  las de mostrador, anuladas incluidas; filtros por número (manda sobre las
+  fechas), cliente (razón social o RIF) y producto. El doble clic muestra la
+  **nota de entrega** (`venta.nota_de_entrega`) en pantalla con reimpresión
+  (`ui/reportes.DialogoDetalleVenta`): un solo formato para papel y pantalla.
+  Sin límite de filas; un mes de operación son cientos. El selector de
+  producto se recarga al volver a la pestaña (`combo_productos` acepta el
+  combo existente).
+
 Pendientes:
 
 - **El `.iss` no está compilado ni probado**: hace falta Inno Setup 6.3 en el

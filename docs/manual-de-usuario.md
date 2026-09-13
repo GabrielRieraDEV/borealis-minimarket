@@ -119,6 +119,11 @@ tasa del día. El panel verde muestra el total a pagar en bolívares —lo que e
 desde el otro lado del mostrador— y debajo su equivalente en dólares. Se
 actualiza en cada tecla.
 
+El total en bolívares es **el precio al público por la cantidad**, el mismo
+que figura en Productos: un café exhibido a 1.400 Bs se cobra 1.400 Bs. Quien
+paga en dólares paga el total en dólares (1,66 USD), y si combina las dos
+monedas el sistema calcula la parte que falta en proporción.
+
 ### Cliente con datos fiscales
 
 `F4` abre los datos del cliente (RIF, razón social) cuando pide factura. Si no,
@@ -282,6 +287,7 @@ pérdida por vencimiento, sin tener que cargar la cantidad a mano.
 | Reporte | Para qué sirve |
 |---------|----------------|
 | Ventas del día | Qué se vendió de cada producto y cuánto entró por cada medio: «tantas harinas, 23 USD por pago móvil». |
+| Ventas una por una | Cada venta, también las de mostrador: número, hora, cajero, cliente, total y cómo se pagó. Se filtra por número de venta, por cliente (nombre o RIF) o por producto («¿quién llevó la harina?»). **Doble clic** en una venta muestra la nota completa y permite reimprimirla. |
 | Ventas del período | Cuánto se cobró, por medio de pago y moneda. |
 | Cierre de caja | El arqueo de una sesión, con sus diferencias. |
 | Ganancia por producto | Qué deja cada producto. |
@@ -290,7 +296,11 @@ pérdida por vencimiento, sin tener que cargar la cantidad a mano.
 | Inventario valorizado | Cuánta plata hay parada en mercadería. |
 | Próximos a vencer | Lo que hay que sacar antes de perderlo. |
 | Pérdidas por motivo | Por dónde se está yendo la mercadería. |
-| Libro de ventas | Formato fiscal, para el contador. |
+| Libro de ventas | Formato fiscal, para el contador. Además del total en bolívares a la tasa de cada venta trae **Cobrado Bs**, lo que se cobró al precio del anaquel; pueden diferir en pocos bolívares. |
+
+Las ventas de mostrador no guardan a quién se vendió: para buscar por cliente,
+el cajero tiene que haber cargado sus datos con `F4` al vender. Al buscar por
+número de venta no importan las fechas.
 
 El mismo resumen de «Ventas del día» aparece al **cerrar la caja**, en la
 pestaña **Qué se vendió**, para la sesión que se está cerrando.

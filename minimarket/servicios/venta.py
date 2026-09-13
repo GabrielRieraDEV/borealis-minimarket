@@ -135,14 +135,14 @@ def registrar_venta(
     _validar_lineas(venta)
     _validar_existencias(conexion, venta, autorizado_por)
     _validar_pagos(venta)
-    if venta.vuelto_usd > 0:
-        if venta.vuelto_por_declarar_usd < 0:
+    if venta.vuelto_bs > 0:
+        if venta.vuelto_por_declarar_bs < 0:
             raise ErrorVenta(
                 "Lo declarado como vuelto supera el vuelto de la venta "
-                f"({venta.vuelto_usd} USD)."
+                f"({venta.vuelto_bs} Bs)."
             )
         # RN-23: lo que el cajero no reparta sale en efectivo en bolivares.
-        venta.completar_vuelto(servicio_tasa.multiplo_redondeo(conexion))
+        venta.completar_vuelto()
     _validar_vueltos(venta)
 
     with transaccion(conexion):
@@ -274,9 +274,8 @@ def nota_de_entrega(conexion: sqlite3.Connection, venta_id: int) -> list[str]:
         clave: repo_configuracion.leer(conexion, f"negocio.{clave}")
         for clave in ("nombre", "rif", "direccion", "telefono")
     }
-    return impresora.nota_de_entrega(
-        venta, negocio, cliente, servicio_tasa.multiplo_redondeo(conexion)
-    )
+    venta.multiplo = servicio_tasa.multiplo_redondeo(conexion)  # vuelto viejo sin declarar
+    return impresora.nota_de_entrega(venta, negocio, cliente)
 
 
 def hay_impresora(conexion: sqlite3.Connection) -> bool:
@@ -315,6 +314,7 @@ def _fijar_tasa(conexion: sqlite3.Connection, venta: Venta) -> None:
         )
     venta.tasa_id = registro.id
     venta.tasa = registro.valor
+    venta.multiplo = servicio_tasa.multiplo_redondeo(conexion)  # arma el total en Bs
     for cobro in venta.pagos:
         cobro.monto_usd = equivalente_usd(cobro.monto, cobro.moneda, registro.valor)
 
@@ -364,7 +364,7 @@ def _validar_existencias(
 
 def _validar_vueltos(venta: Venta) -> None:
     """RN-23 (1.3.0). El vuelto declarado tiene que ser el vuelto de la venta."""
-    if venta.vuelto_usd == 0 and venta.vueltos:
+    if venta.vuelto_bs == 0 and venta.vueltos:
         raise ErrorVenta("La venta no tiene vuelto que entregar.")
     for vuelto in venta.vueltos:
         if vuelto.medio not in MEDIOS_VUELTO:
@@ -377,7 +377,7 @@ def _validar_vueltos(venta: Venta) -> None:
     if not venta.vuelto_cuadra:
         raise ErrorVenta(
             f"Lo declarado como vuelto no coincide con el vuelto de la venta "
-            f"({venta.vuelto_usd} USD)."
+            f"({venta.vuelto_bs} Bs)."
         )
 
 
@@ -392,10 +392,10 @@ def _validar_pagos(venta: Venta) -> None:
             raise ErrorVenta(f"Moneda desconocida: {cobro.moneda}.")
         if cobro.monto <= 0:
             raise ErrorVenta("El monto de cada pago debe ser mayor que cero.")
-    if venta.falta_usd > 0:
+    if venta.falta_bs > 0:
         raise ErrorVenta(
-            f"Faltan {venta.falta_usd} USD por cobrar. La venta no se confirma "
-            "hasta que los pagos alcancen el total."
+            f"Faltan {venta.falta_bs} Bs ({venta.falta_usd} USD) por cobrar. La "
+            "venta no se confirma hasta que los pagos alcancen el total."
         )
     if not venta.vuelto_admisible:
         raise ErrorVenta(

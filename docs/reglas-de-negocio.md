@@ -112,11 +112,13 @@ iva_línea  =  total_línea  −  base_línea
 Los totales del documento son la suma de los totales de línea ya redondeados. No se recalcula el IVA sobre el total del documento, porque conviven productos exentos y gravados y el resultado diferiría de la suma de las partes.
 RN-21 · Separación de exento y gravado
 La venta almacena por separado el total exento, la base imponible gravada y el IVA. Esta separación es la que alimenta el libro de ventas y es requisito para una futura integración con máquina fiscal.
-RN-22 · Cobro con varios medios
-Σ  monto_usd  de  los  pagos   ≥   total_venta_usd
-Cada pago se registra en su moneda original junto con su equivalente en dólares, calculado a la tasa de la venta. La venta no se confirma mientras la suma de los pagos no alcance el total.
-RN-23 · Vuelto
-vuelto_usd  =  Σ monto_usd  de  los  pagos  −  total_venta_usd
+RN-22 · Cobro con varios medios (modificada en 1.4.0)
+total_venta_bs  =  Σ  redondear( cantidad × precio_al_público_bs , 2 )
+Σ pagos_bs / total_venta_bs  +  Σ pagos_usd / total_venta_usd   ≥   1
+El precio al público en bolívares es el de RN-03 con el redondeo de RN-10, el mismo que se exhibe. Cada pago cubre la venta en su propia moneda: los bolívares contra el total en bolívares y los dólares contra el total en dólares. Primero cuentan los bolívares y lo que falta se cubre en proporción con dólares. Cada pago se registra en su moneda original junto con su equivalente en dólares, calculado a la tasa de la venta. La venta no se confirma mientras los pagos no alcancen el total.
+Por qué cambió: con la tasa en 842, un centavo de dólar vale 8,42 Bs. Convertir el total ya redondeado a centavos (1,66 USD × 842,2067 = 1.398,06 Bs) no coincidía con el precio exhibido (1,6614 × 842,2067 = 1.399,24 → 1.400 Bs), y podía cobrar de más o de menos.
+RN-23 · Vuelto (modificada en 1.4.0)
+vuelto_bs  =  lo pagado que excede el total según RN-22; lo que sobra de los dólares, a la tasa de la venta
 El vuelto se entrega en la moneda que indique el cajero. Si se entrega en bolívares, se convierte a la tasa de la venta y se redondea al múltiplo de sencillo configurado. Solo los medios en efectivo generan vuelto: un excedente pagado por punto de venta o transferencia debe rechazarse en lugar de devolverse.
 Ejemplo trabajado C — venta con pago mixto
 Venta de cuatro paquetes de harina exenta a 0,7800 dólares y de dos refrescos gravados a 0,8222 dólares. El cliente paga con cinco dólares en efectivo y el resto en bolívares. Tasa: 210,500000.
@@ -130,7 +132,7 @@ Total exento |  | 3,12 USD
 Total base imponible |  | 1,41 USD
 Total IVA |  | 0,23 USD
 Total de la venta | 3,12 + 1,41 + 0,23 | 4,76 USD
-Equivalente en bolívares | 4,76 × 210,500000 | 1.001,98 Bs
+Total en bolívares (1.4.0) | 4 × 165,00 + 2 × 174,00 | 1.008,00 Bs
 Pago recibido en efectivo | 5,00 USD | 5,00 USD
 Vuelto | 5,00 − 4,76 | 0,24 USD
 Vuelto entregado en bolívares | 0,24 × 210,500000 | 50,52 → 51,00 Bs

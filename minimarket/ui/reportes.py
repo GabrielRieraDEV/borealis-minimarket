@@ -15,10 +15,14 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDateEdit,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -39,7 +43,8 @@ from minimarket.servicios import ErrorServicio
 from minimarket.servicios import configuracion as servicio_configuracion
 from minimarket.servicios import reportes as servicio_reportes
 from minimarket.servicios import usuarios as servicio_usuarios
-from minimarket.ui.comunes import avisar, formato
+from minimarket.servicios import venta as servicio_venta
+from minimarket.ui.comunes import avisar, combo_productos, formato
 
 
 @dataclass
@@ -51,6 +56,7 @@ class Reporte:
     filas: list[list[str]]
     subtitulo: str = ""
     pie: list[str] = field(default_factory=list)
+    estirar: int = 0  # la columna que se lleva el ancho sobrante: la del nombre
 
 
 class PantallaReportes(QWidget):
@@ -70,6 +76,7 @@ class PantallaReportes(QWidget):
         # programa.
         for permiso, etiqueta, generador in (
             (VER_REPORTES, "Ventas del dia: que se vendio y como se cobro", self._dia),
+            (VER_REPORTES, "Ventas una por una: por cliente, producto o numero", self._una_por_una),
             (VER_REPORTES, "Ventas del periodo, por medio de pago", self._ventas),
             (REPORTE_CIERRE, "Cierre de caja (arqueo)", self._cierre),
             (REPORTES_GANANCIA, "Ganancia por producto", self._ganancia_producto),
@@ -94,6 +101,27 @@ class PantallaReportes(QWidget):
         self.sesion = QComboBox()
         self.sesion.setVisible(False)
 
+        # Filtros de «Ventas una por una» (1.4.0); todos opcionales.
+        self.numero = QLineEdit()
+        self.numero.setPlaceholderText("N° de venta")
+        self.numero.setMaximumWidth(110)
+        self.cliente = QLineEdit()
+        self.cliente.setPlaceholderText("Cliente o RIF")
+        self.producto = combo_productos(conexion)
+        self.producto.lineEdit().setPlaceholderText("Cualquier producto")
+        self.filtros = QWidget()
+        fila_filtros = QHBoxLayout(self.filtros)
+        fila_filtros.setContentsMargins(0, 0, 0, 0)
+        for etiqueta, campo in (
+            ("Numero:", self.numero),
+            ("Cliente:", self.cliente),
+            ("Producto:", self.producto),
+        ):
+            fila_filtros.addWidget(QLabel(etiqueta))
+            fila_filtros.addWidget(campo, 1 if campo is not self.numero else 0)
+        self.filtros.setVisible(False)
+        self.ventas: list = []  # las filas de «una por una», para el doble clic
+
         boton_ver = QPushButton("&Ver reporte")
         boton_ver.clicked.connect(self.generar)
         self.boton_pdf = QPushButton("Exportar a &PDF")
@@ -114,11 +142,13 @@ class PantallaReportes(QWidget):
         self.tabla = QTableWidget(0, 0)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tabla.cellDoubleClicked.connect(self.abrir_venta)
         self.resumen = QLabel()
         self.resumen.setWordWrap(True)
 
         disposicion = QVBoxLayout(self)
         disposicion.addLayout(controles)
+        disposicion.addWidget(self.filtros)
         disposicion.addWidget(self.tabla)
         disposicion.addWidget(self.resumen)
 
@@ -126,12 +156,14 @@ class PantallaReportes(QWidget):
 
     def refrescar(self) -> None:
         """La llama la ventana principal al cambiar de pestana."""
+        combo_productos(self.conexion, self.producto)  # los dados de alta mientras tanto
         self._cambiar_tipo()
 
     def _cambiar_tipo(self) -> None:
         es_cierre = self.tipo.currentData() == self._cierre
         es_dia = self.tipo.currentData() == self._dia
         self.sesion.setVisible(es_cierre)
+        self.filtros.setVisible(self.tipo.currentData() == self._una_por_una)
         self.desde.setEnabled(not es_cierre and not es_dia)  # el dia es «hasta»
         self.hasta.setEnabled(not es_cierre)
         if es_cierre:
@@ -169,7 +201,10 @@ class PantallaReportes(QWidget):
         for numero, fila in enumerate(reporte.filas):
             for columna, texto in enumerate(fila):
                 self.tabla.setItem(numero, columna, QTableWidgetItem(texto))
-        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        encabezado = self.tabla.horizontalHeader()
+        encabezado.setSectionResizeMode(QHeaderView.Interactive)
+        self.tabla.resizeColumnsToContents()
+        encabezado.setSectionResizeMode(reporte.estirar, QHeaderView.Stretch)
         self.resumen.setText(" · ".join(reporte.pie) or reporte.subtitulo)
 
     def exportar(self) -> None:
@@ -217,6 +252,68 @@ class PantallaReportes(QWidget):
         return reporte_venta_del_dia(
             servicio_reportes.ventas_del_dia(self.conexion, fecha)
         )
+
+    def _una_por_una(self) -> Reporte:
+        """Pedido del cliente (1.4.0): cada venta; doble clic abre su detalle."""
+        desde, hasta = self._rango()
+        numero = self.numero.text().strip()
+        if numero and not numero.isdigit():
+            raise ErrorServicio("El numero de venta son solo digitos.")
+        texto = self.producto.currentText().strip()
+        indice = self.producto.findText(texto) if texto else -1
+        if texto and indice < 0:
+            raise ErrorServicio(f"No hay ningun producto que se llame «{texto}».")
+        self.ventas = servicio_reportes.ventas_una_por_una(
+            self.conexion,
+            desde,
+            hasta,
+            numero=int(numero) if numero else None,
+            cliente=self.cliente.text(),
+            producto_id=self.producto.itemData(indice) if indice >= 0 else None,
+        )
+        con_producto = indice >= 0
+        validas = [v for v in self.ventas if not v.anulada]
+        return Reporte(
+            titulo="Ventas una por una",
+            estirar=3,  # el cliente
+            subtitulo=(
+                f"Venta N° {numero}" if numero else f"Del {desde} al {hasta}"
+            ) + (f" · con {texto}" if con_producto else "")
+            + (f" · cliente «{self.cliente.text().strip()}»" if self.cliente.text().strip() else ""),
+            columnas=[
+                "Numero", "Fecha y hora", "Cajero", "Cliente",
+                *(["Cantidad"] if con_producto else []),
+                "Total Bs", "Total USD", "Cobrado con", "Estado",
+            ],
+            filas=[
+                [
+                    str(v.numero),
+                    v.fecha_hora,
+                    v.cajero,
+                    v.cliente or "Mostrador",
+                    *([formato(v.cantidad, 3)] if con_producto else []),
+                    formato(v.total_bs),
+                    formato(v.total_usd),
+                    v.medios,
+                    f"ANULADA: {v.motivo_anulacion}" if v.anulada else "",
+                ]
+                for v in self.ventas
+            ],
+            pie=[
+                f"{len(validas)} ventas",
+                *([f"{len(self.ventas) - len(validas)} anuladas"] if len(validas) < len(self.ventas) else []),
+                f"Total {formato(sum((v.total_bs for v in validas), Decimal(0)))} Bs",
+                f"{formato(sum((v.total_usd for v in validas), Decimal(0)))} USD",
+                "Doble clic en una venta para ver su detalle",
+            ],
+        )
+
+    def abrir_venta(self, fila: int, _columna: int = 0) -> None:
+        """El detalle de la venta: la nota de entrega, y reimprimirla."""
+        if self.reporte is None or self.reporte.titulo != "Ventas una por una":
+            return
+        if 0 <= fila < len(self.ventas):
+            DialogoDetalleVenta(self.conexion, self.ventas[fila], self).exec()
 
     def _ventas(self) -> Reporte:
         desde, hasta = self._rango()
@@ -446,8 +543,54 @@ class PantallaReportes(QWidget):
                 f"Base imponible {formato(totales.base_imponible_bs)} Bs",
                 f"IVA {formato(totales.iva_bs)} Bs",
                 f"Total {formato(totales.total_bs)} Bs",
+                f"Cobrado {formato(totales.cobrado_bs)} Bs",
             ],
         )
+
+
+class DialogoDetalleVenta(QDialog):
+    """Una venta completa (1.4.0): productos, pagos, vuelto y cliente.
+
+    Muestra la misma nota de entrega que se imprime: un solo formato para
+    el papel y la pantalla, y lo que el cliente reclama es lo que tiene en
+    la mano.
+    """
+
+    def __init__(self, conexion: sqlite3.Connection, venta, padre: QWidget | None = None) -> None:
+        super().__init__(padre)
+        self.conexion = conexion
+        self.venta_id = venta.venta_id
+        self.setWindowTitle(f"Venta N° {venta.numero}")
+        self.resize(460, 620)
+
+        encabezado = [f"Cajero: {venta.cajero}"]
+        if venta.anulada:
+            encabezado.insert(0, f"*** ANULADA: {venta.motivo_anulacion or ''} ***")
+        texto = QPlainTextEdit(
+            "\n".join(encabezado + servicio_venta.nota_de_entrega(conexion, venta.venta_id))
+        )
+        texto.setReadOnly(True)
+        texto.setObjectName("notaDeEntrega")  # letra de ancho fijo: `ui/estilo.py`
+
+        botones = QDialogButtonBox(QDialogButtonBox.Close, parent=self)
+        botones.button(QDialogButtonBox.Close).setText("Cerrar")
+        botones.rejected.connect(self.reject)
+        if servicio_venta.hay_impresora(conexion):
+            reimprimir = botones.addButton("&Reimprimir", QDialogButtonBox.ActionRole)
+            reimprimir.clicked.connect(self.reimprimir)
+
+        disposicion = QVBoxLayout(self)
+        disposicion.addWidget(texto)
+        disposicion.addWidget(botones)
+
+    def reimprimir(self) -> None:
+        """RF-39."""
+        from minimarket.infra.impresora import ErrorImpresion
+
+        try:
+            servicio_venta.imprimir_nota(self.conexion, self.venta_id)
+        except ErrorImpresion as error:
+            avisar(self, str(error))
 
 
 def _celda(fila, atributo: str, decimales: int) -> str:

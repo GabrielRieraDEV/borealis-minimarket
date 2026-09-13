@@ -358,6 +358,27 @@ class MargenSugerido:
 
 
 @dataclass(frozen=True)
+class FilaVenta:
+    """Pedido del cliente (1.4.0): una venta, de mostrador o con cliente.
+
+    `cliente` en None es venta de mostrador: sin F4 no se sabe a quien fue.
+    `cantidad` es la del producto buscado, y solo si se filtro por uno.
+    """
+
+    venta_id: int
+    numero: int
+    fecha_hora: str
+    cajero: str
+    cliente: str | None
+    total_usd: Decimal
+    total_bs: Decimal
+    medios: str
+    anulada: bool
+    motivo_anulacion: str | None = None
+    cantidad: Decimal | None = None
+
+
+@dataclass(frozen=True)
 class ProductoVendido:
     """Una linea de la venta del dia: que se vendio y cuanto."""
 
@@ -395,6 +416,9 @@ COLUMNAS_LIBRO: list[tuple[str, str, int]] = [
     ("Base imponible Bs", "base_imponible_bs", 2),
     ("IVA Bs", "iva_bs", 2),
     ("Total Bs", "total_bs", 2),
+    # 1.4.0: lo que se cobro, al precio del anaquel. Puede diferir en pocos Bs
+    # de Total Bs (USD × tasa). Va al lado hasta que el contador elija uno.
+    ("Cobrado Bs", "cobrado_bs", 2),
     ("Condicion", "condicion", 0),
 ]
 
@@ -412,6 +436,7 @@ class FilaLibro:
     base_imponible_usd: Decimal
     iva_usd: Decimal
     anulada: bool = False
+    total_cobrado_bs: Decimal = Decimal(0)  # `venta.total_bs`, tal como se guardo
 
     def _bs(self, monto_usd: Decimal) -> Decimal:
         """RN-31. La anulada figura con importes en cero, pero figura."""
@@ -439,6 +464,11 @@ class FilaLibro:
         return self.exento_bs + self.base_imponible_bs + self.iva_bs
 
     @property
+    def cobrado_bs(self) -> Decimal:
+        """Lo que pago el cliente en bolivares (1.4.0); la anulada, en cero."""
+        return Decimal(0) if self.anulada else self.total_cobrado_bs
+
+    @property
     def condicion(self) -> str:
         return "ANULADA" if self.anulada else ""
 
@@ -451,6 +481,7 @@ class TotalesLibro:
     exento_bs: Decimal
     base_imponible_bs: Decimal
     iva_bs: Decimal
+    cobrado_bs: Decimal = Decimal(0)
 
     @property
     def total_bs(self) -> Decimal:
@@ -471,6 +502,7 @@ class Libro:
             exento_bs=sum((f.exento_bs for f in filas), Decimal(0)),
             base_imponible_bs=sum((f.base_imponible_bs for f in filas), Decimal(0)),
             iva_bs=sum((f.iva_bs for f in filas), Decimal(0)),
+            cobrado_bs=sum((f.cobrado_bs for f in filas), Decimal(0)),
         )
 
     def por_fecha(self) -> list[TotalesLibro]:

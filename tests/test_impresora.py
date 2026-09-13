@@ -42,7 +42,7 @@ def test_la_nota_lleva_los_datos_fiscales_y_el_desglose(venta):
     assert "Base imponible" in texto and "1.41" in texto
     assert "IVA" in texto and "0.23" in texto
     assert "TOTAL USD" in texto and "4.76" in texto
-    assert "TOTAL Bs" in texto and "1,001.98" in texto
+    assert "TOTAL Bs" in texto and "1,008.00" in texto  # al publico (1.4.0)
 
 
 def test_la_nota_muestra_el_vuelto_en_bolivares(venta):

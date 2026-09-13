@@ -34,7 +34,6 @@ def nota_de_entrega(
     venta: Venta,
     negocio: dict[str, str],
     cliente: Cliente | None = None,
-    multiplo: Decimal = Decimal(1),
 ) -> list[str]:
     """RF-39. El comprobante completo, linea por linea."""
     lineas = _encabezado(negocio)
@@ -77,10 +76,10 @@ def nota_de_entrega(
         lineas.append(
             _columnas(etiqueta, f"{_importe(cobro.monto)} {cobro.moneda}")
         )
-    if venta.vuelto_usd > 0:
+    if venta.vuelto_bs > 0:
         # RN-23: en lo que salio. Una venta anterior a 1.3.0 no lo declara:
         # salio en efectivo en bolivares, redondeado.
-        vueltos = venta.vueltos or [venta.vuelto_en("EFECTIVO", "BS", multiplo)]
+        vueltos = venta.vueltos or [venta.vuelto_en_efectivo_bs()]
         for vuelto in vueltos:
             etiqueta = "Vuelto " + (
                 "efectivo" if vuelto.es_efectivo

@@ -70,7 +70,7 @@ def test_apertura_varias_ventas_y_cierre(conexion, producto):
         conexion,
         producto,
         Decimal(2),
-        [servicio_venta.pago(EFECTIVO, BS, Decimal("421.00"), TASA_DEL_EJEMPLO)],
+        [servicio_venta.pago(EFECTIVO, BS, Decimal("422.00"), TASA_DEL_EJEMPLO)],
     )
     _vender(  # 3,00 USD en efectivo, sin vuelto
         conexion,
@@ -82,18 +82,18 @@ def test_apertura_varias_ventas_y_cierre(conexion, producto):
         conexion,
         producto,
         Decimal(5),
-        [servicio_venta.pago(PUNTO, BS, Decimal("1052.50"), TASA_DEL_EJEMPLO)],
+        [servicio_venta.pago(PUNTO, BS, Decimal("1055.00"), TASA_DEL_EJEMPLO)],
     )
 
     resumen = servicio_caja.arqueo(conexion, sesion.id)
     assert resumen.ventas == 3
     assert resumen.total_vendido_usd == Decimal("10.00")
-    assert resumen.linea(EFECTIVO, BS).esperado == Decimal("921.00")  # 500 + 421
+    assert resumen.linea(EFECTIVO, BS).esperado == Decimal("922.00")  # 500 + 2 × 211 al publico
     assert resumen.linea(EFECTIVO, USD).esperado == Decimal("23.00")  # 20 + 3
-    assert resumen.linea(PUNTO, BS).esperado == Decimal("1052.50")
+    assert resumen.linea(PUNTO, BS).esperado == Decimal("1055.00")
     assert resumen.linea(PUNTO, BS).conteo is None  # se concilia con el banco
 
-    cierre = servicio_caja.cerrar(conexion, Decimal("921.00"), Decimal("23.00"))
+    cierre = servicio_caja.cerrar(conexion, Decimal("922.00"), Decimal("23.00"))
     assert cierre.linea(EFECTIVO, BS).diferencia == Decimal(0)
     assert cierre.linea(EFECTIVO, USD).diferencia == Decimal(0)
     assert cierre.sesion.estado == "CERRADA"

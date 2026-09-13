@@ -11,6 +11,7 @@ from minimarket.dominio.venta import (
     BS,
     COMPLETADA,
     EFECTIVO,
+    PAGO_MOVIL,
     PUNTO,
     USD,
     Cliente,
@@ -88,7 +89,9 @@ def test_ejemplo_c_totales_de_la_venta():
     assert venta.base_imponible_usd == Decimal("1.41")
     assert venta.iva_usd == Decimal("0.23")
     assert venta.total_usd == Decimal("4.76")
-    assert venta.total_bs == Decimal("1001.98")
+    # 1.4.0: el precio al publico por la cantidad (4 × 165 + 2 × 174), no
+    # 4,76 × 210,5 = 1.001,98. Es lo que dice el anaquel.
+    assert venta.total_bs == Decimal("1008.00")
 
 
 def test_ejemplo_c_vuelto_en_bolivares():
@@ -101,10 +104,44 @@ def test_ejemplo_c_vuelto_en_bolivares():
     venta.pagos = [
         servicio_venta.pago(EFECTIVO, USD, Decimal("5.00"), TASA_DEL_EJEMPLO)
     ]
-    assert venta.pagado_usd == Decimal("5.00")
+    assert venta.falta_bs == Decimal(0)
     assert venta.vuelto_usd == Decimal("0.24")
-    assert venta.vuelto_bs() == Decimal("51.00")  # 50,52 redondeado hacia arriba
+    assert venta.vuelto_bs == Decimal("50.52")
+    assert venta.vuelto_en_efectivo_bs().monto == Decimal("51.00")  # hacia arriba
     assert venta.vuelto_admisible
+
+
+def test_el_cafe_se_cobra_a_lo_que_dice_el_anaquel():
+    """El caso del cliente: 1,6614 USD a 842,2067 se exhibe a 1.400 Bs.
+
+    Antes el panel decia 1.398,06 (1,66 USD × tasa). En bolivares se cobra
+    1.400 justo; en dolares, 1,66 justo; y mezclado, en proporcion.
+    """
+    tasa = Decimal("842.2067")
+    cafe = LineaVenta(1, "Cafe 200 g", Decimal(1), Decimal("1.6614"), Decimal(0), Decimal(0))
+    venta = Venta(usuario_id=1, tasa=tasa, lineas=[cafe])
+    assert cafe.precio_unit_bs(tasa) == Decimal("1400.00")
+    assert venta.total_bs == Decimal("1400.00")
+    assert venta.total_usd == Decimal("1.66")
+
+    venta.pagos = [servicio_venta.pago(PUNTO, BS, Decimal("1398.06"), tasa)]
+    assert venta.falta_bs == Decimal("1.94")
+    venta.pagos = [servicio_venta.pago(PUNTO, BS, Decimal("1400.00"), tasa)]
+    assert (venta.falta_bs, venta.vuelto_bs) == (Decimal(0), Decimal(0))
+
+    venta.pagos = [servicio_venta.pago(EFECTIVO, USD, Decimal("1.66"), tasa)]
+    assert (venta.falta_bs, venta.vuelto_bs) == (Decimal(0), Decimal(0))
+
+    # 1 USD cubre 1/1,66 de la venta; el resto en Bs es esa parte de 1.400.
+    venta.pagos = [servicio_venta.pago(EFECTIVO, USD, Decimal("1.00"), tasa)]
+    assert venta.falta_bs == Decimal("556.63")
+    assert venta.falta_usd == Decimal("0.66")
+    venta.pagos.append(servicio_venta.pago(PAGO_MOVIL, BS, venta.falta_bs, tasa))
+    assert (venta.falta_bs, venta.vuelto_bs) == (Decimal(0), Decimal(0))
+
+    # Lo que sobra de los dolares vuelve a la tasa, no a la del anaquel.
+    venta.pagos = [servicio_venta.pago(EFECTIVO, USD, Decimal("2.00"), tasa)]
+    assert venta.vuelto_bs == Decimal("286.35")  # 0,34 × 842,2067
 
 
 def test_el_iva_no_se_recalcula_sobre_el_total_del_documento():

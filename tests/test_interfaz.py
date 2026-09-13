@@ -89,7 +89,7 @@ def test_el_punto_de_venta_arma_una_venta_desde_el_lector(aplicacion, base_demo)
     encabezados = [pantalla.tabla.horizontalHeaderItem(i).text() for i in range(pantalla.tabla.columnCount())]
     assert encabezados == ["Producto", "Cantidad", "Precio USD", "Precio Bs", "IVA %", "Total USD", "Total Bs"]
     assert pantalla.tabla.item(0, 3).text() == "966.00"
-    assert pantalla.tabla.item(0, 6).text() == "965.77"
+    assert pantalla.tabla.item(0, 6).text() == "966.00"  # precio al publico × 1 (1.4.0)
     assert pantalla.codigo.text() == ""  # el foco vuelve limpio para el lector
 
     cobro = DialogoCobro(pantalla._venta_en_curso())
@@ -285,7 +285,10 @@ def test_el_cobro_reparte_el_vuelto(aplicacion, base_demo):
     cobro.agregar_vuelto()
     assert cobro.tabla_vuelto.rowCount() == 1
     assert "el resto" in cobro.saldo.text()
-    assert venta.vuelto_por_declarar_usd == Decimal("0.95")
+    from minimarket.dominio.dinero import convertir_a_bs
+
+    # 10,95 USD de vuelto a la tasa, menos los 10 USD declarados.
+    assert venta.vuelto_por_declarar_bs == convertir_a_bs(Decimal("10.95"), venta.tasa) - convertir_a_bs(Decimal(10), venta.tasa)
 
 
 def test_los_gastos_se_editan_desde_la_pantalla(aplicacion, base_demo, monkeypatch):
@@ -365,3 +368,70 @@ def test_la_compra_se_corrige_desde_la_pantalla(aplicacion, base_demo, monkeypat
     assert nueva.total_usd == completa.total_usd + primera.cant_presentacion * Decimal("1.00")
     for producto_id, antes in existencias_antes.items():
         assert servicio_inventario.existencia(base_demo, producto_id) == antes
+
+
+def test_ventas_una_por_una_y_su_detalle(aplicacion, base_demo, monkeypatch):
+    """El reporte nuevo (1.4.0) lista las de mostrador y abre la nota con doble clic."""
+    from PySide6.QtCore import QDate, Qt
+
+    from minimarket.ui import reportes as ui_reportes
+
+    pantalla = ui_reportes.PantallaReportes(base_demo)
+    pantalla.tipo.setCurrentIndex(pantalla.tipo.findText("Ventas una por una", Qt.MatchStartsWith))
+    assert pantalla.filtros.isVisibleTo(pantalla)
+    pantalla.desde.setDate(QDate(2000, 1, 1))
+    pantalla.generar()
+    assert pantalla.tabla.rowCount() == len(pantalla.ventas) > 0
+    assert pantalla.tabla.item(0, 3).text() in ("Mostrador", pantalla.ventas[0].cliente)
+
+    abiertos = []
+    monkeypatch.setattr(ui_reportes.DialogoDetalleVenta, "exec", lambda self: abiertos.append(self))
+    pantalla.abrir_venta(0)
+    texto = abiertos[0].findChild(ui_reportes.QPlainTextEdit).toPlainText()
+    assert f"N° {pantalla.ventas[0].numero:06d}" in texto and "FORMA DE PAGO" in texto
+
+
+def test_enter_en_el_monto_agrega_el_pago_y_no_confirma(aplicacion, base_demo, monkeypatch):
+    """Confirmar es F12 y solo F12. Con el dialogo a la vista, QDialogButtonBox
+    vuelve «default» al boton de aceptar, y Enter cerraba el cobro; las pruebas
+    que no muestran la ventana no lo veian."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from minimarket.ui import venta as ui_venta
+
+    avisos = []
+    monkeypatch.setattr(ui_venta, "avisar", lambda *a: avisos.append(a[1]))
+    pantalla = ui_venta.PantallaVenta(base_demo)
+    pantalla.codigo.setText("7591001000018")
+    pantalla.agregar()
+    cobro = ui_venta.DialogoCobro(pantalla._venta_en_curso())
+    cobro.show()
+    QTest.qWaitForWindowExposed(cobro)
+    cobro.monto.setFocus()
+    QTest.keyClick(cobro.monto, Qt.Key_Return)  # el sugerido: pago exacto
+    assert avisos == [] and len(cobro.pagos) == 1
+    assert cobro.isVisible() and cobro.result() == 0
+    cobro.reject()
+
+
+def test_el_selector_del_reporte_ve_los_productos_nuevos(aplicacion, base_demo):
+    """Un producto dado de alta despues de abrir Reportes aparece al volver."""
+    import dataclasses
+    from decimal import Decimal
+
+    from minimarket.servicios import catalogo
+    from minimarket.ui import reportes as ui_reportes
+
+    pantalla = ui_reportes.PantallaReportes(base_demo)
+    pantalla.producto.setEditText("Arroz blanco 1 kg")
+    base = catalogo.listado_completo(base_demo)[0]
+    catalogo.crear_producto(
+        base_demo,
+        dataclasses.replace(base, id=None, nombre="Galletas nuevas", codigo_barras="7599999999990",
+                            precio_venta_usd=Decimal("1.0000")),
+    )
+    assert pantalla.producto.findText("Galletas nuevas") < 0
+    pantalla.refrescar()
+    assert pantalla.producto.findText("Galletas nuevas") >= 0
+    assert pantalla.producto.currentText() == "Arroz blanco 1 kg"  # no pierde lo elegido

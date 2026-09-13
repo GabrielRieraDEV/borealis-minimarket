@@ -224,6 +224,10 @@ QGroupBox::title {{
     color: {VERDE_OSCURO};
 }}
 
+/* --- Reportes ---------------------------------------------------------- */
+/* La nota de entrega en pantalla: columnas alineadas como en el papel. */
+#notaDeEntrega {{ font-family: "Consolas", "Courier New", monospace; font-size: 10pt; }}
+
 /* --- Ingreso ----------------------------------------------------------- */
 #tarjetaIngreso {{
     background: {PAPEL};

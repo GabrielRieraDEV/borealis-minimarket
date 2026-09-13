@@ -27,6 +27,7 @@ from minimarket.dominio.reportes import (
     MargenSugerido,
     VentaDelDia,
     FilaPerdida,
+    FilaVenta,
     Libro,
     ResultadoPeriodo,
     ResumenVentas,
@@ -104,6 +105,28 @@ def libro_de_ventas(conexion: sqlite3.Connection, desde: str, hasta: str) -> Lib
     servicio_usuarios.exigir(conexion, VER_REPORTES)
     _validar_rango(desde, hasta)
     return Libro(desde, hasta, repo_reportes.libro_de_ventas(conexion, desde, hasta))
+
+
+def ventas_una_por_una(
+    conexion: sqlite3.Connection,
+    desde: str,
+    hasta: str,
+    numero: int | None = None,
+    cliente: str = "",
+    producto_id: int | None = None,
+) -> list[FilaVenta]:
+    """Pedido del cliente (1.4.0): cada venta, tambien las de mostrador.
+
+    Para responder «¿que le vendimos a tal cliente?», «¿quien llevo la
+    harina?» o «¿cuanto le cobraste en la venta 120?». El detalle de cada una
+    es la nota de entrega (`venta.nota_de_entrega`).
+    """
+    servicio_usuarios.exigir(conexion, VER_REPORTES)
+    if numero is None:
+        _validar_rango(desde, hasta)
+    return repo_reportes.ventas_una_por_una(
+        conexion, desde, hasta, numero, cliente.strip(), producto_id
+    )
 
 
 def perdidas_por_motivo(

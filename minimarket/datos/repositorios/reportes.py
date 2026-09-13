@@ -18,6 +18,7 @@ from minimarket.dominio.reportes import (
     FilaGanancia,
     FilaLibro,
     FilaPerdida,
+    FilaVenta,
     ProductoVendido,
     ResumenVentas,
     TotalPorMedio,
@@ -128,6 +129,59 @@ def productos_vendidos(
                  GROUP BY d.producto_id
                  ORDER BY cantidad DESC, nombre""",
             [ANULADA, *parametros],
+        )
+    ]
+
+
+def ventas_una_por_una(
+    conexion: sqlite3.Connection,
+    desde: str = "",
+    hasta: str = "",
+    numero: int | None = None,
+    cliente: str = "",
+    producto_id: int | None = None,
+) -> list[FilaVenta]:
+    """Las ventas del rango, anuladas incluidas y marcadas (1.4.0).
+
+    El numero de venta manda sobre el rango: quien lo tiene en la mano no
+    sabe de que dia es. `cliente` busca por razon social o RIF.
+    """
+    filtro, parametros = ("AND v.numero = ?", [numero]) if numero is not None else _filtro(desde, hasta, None)
+    if cliente:
+        filtro += " AND (cl.razon_social LIKE ? OR cl.rif LIKE ?)"
+        parametros += [f"%{cliente}%"] * 2
+    cantidad, del_producto = "NULL", []
+    if producto_id is not None:
+        cantidad = "(SELECT SUM(d.cantidad) FROM venta_detalle d WHERE d.venta_id = v.id AND d.producto_id = ?)"
+        del_producto = [producto_id]
+        filtro += " AND EXISTS (SELECT 1 FROM venta_detalle d WHERE d.venta_id = v.id AND d.producto_id = ?)"
+        parametros.append(producto_id)
+    return [
+        FilaVenta(
+            venta_id=f["id"],
+            numero=f["numero"],
+            fecha_hora=f["fecha_hora"],
+            cajero=f["cajero"],
+            cliente=f["razon_social"] and f"{f['razon_social']} ({f['rif']})",
+            total_usd=desde_entero(f["total_usd"], ESCALA_TOTAL),
+            total_bs=desde_entero(f["total_bs"], ESCALA_TOTAL),
+            medios=(f["medios"] or "").replace("_", " ").replace(",", ", "),
+            anulada=f["estado"] == ANULADA,
+            motivo_anulacion=f["motivo_anulacion"],
+            cantidad=None if f["cantidad"] is None else desde_entero(f["cantidad"], ESCALA_CANTIDAD),
+        )
+        for f in conexion.execute(
+            f"""SELECT v.id, v.numero, v.fecha_hora, v.total_usd, v.total_bs,
+                       v.estado, v.motivo_anulacion, u.nombre AS cajero,
+                       cl.razon_social, cl.rif, {cantidad} AS cantidad,
+                       (SELECT GROUP_CONCAT(DISTINCT p.medio || ' ' || p.moneda)
+                          FROM venta_pago p WHERE p.venta_id = v.id) AS medios
+                  FROM venta v
+                  JOIN usuario u ON u.id = v.usuario_id
+                  LEFT JOIN cliente cl ON cl.id = v.cliente_id
+                 WHERE 1 = 1 {filtro}
+                 ORDER BY v.fecha_hora, v.numero""",
+            [*del_producto, *parametros],
         )
     ]
 
@@ -243,9 +297,10 @@ def libro_de_ventas(
             base_imponible_usd=desde_entero(f["base_imponible_usd"], ESCALA_TOTAL),
             iva_usd=desde_entero(f["iva_usd"], ESCALA_TOTAL),
             anulada=f["estado"] == ANULADA,
+            total_cobrado_bs=desde_entero(f["total_bs"], ESCALA_TOTAL),
         )
         for f in conexion.execute(
-            f"""SELECT v.fecha_hora, v.numero, v.estado, v.exento_usd,
+            f"""SELECT v.fecha_hora, v.numero, v.estado, v.exento_usd, v.total_bs,
                        v.base_imponible_usd, v.iva_usd, t.valor AS tasa,
                        cl.razon_social, cl.rif
                   FROM venta v

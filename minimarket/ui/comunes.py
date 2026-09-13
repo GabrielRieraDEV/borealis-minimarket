@@ -37,18 +37,26 @@ def formato(valor: Decimal | None, decimales: int = 2) -> str:
     return f"{valor:,.{decimales}f}"
 
 
-def combo_productos(conexion: sqlite3.Connection) -> QComboBox:
+def combo_productos(
+    conexion: sqlite3.Connection, combo: QComboBox | None = None
+) -> QComboBox:
     """Selector con autocompletado por nombre; el catalogo entra entero.
 
     `currentData()` devuelve el id del producto, o None si no se eligio nada.
+    Con `combo`, lo vuelve a llenar y conserva lo que estaba escrito.
     """
-    combo = QComboBox()
-    combo.setEditable(True)
-    combo.setInsertPolicy(QComboBox.NoInsert)
-    combo.completer().setFilterMode(Qt.MatchContains)
+    escrito = combo.currentText() if combo is not None else ""
+    if combo is None:
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.completer().setFilterMode(Qt.MatchContains)
+    combo.clear()
     for producto in catalogo.listado_completo(conexion):
         combo.addItem(producto.nombre, producto.id)
-    combo.setCurrentIndex(-1)
+    combo.setCurrentIndex(combo.findText(escrito) if escrito else -1)
+    if escrito and combo.currentIndex() < 0:
+        combo.setEditText(escrito)
     return combo
 
 

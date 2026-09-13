@@ -43,6 +43,7 @@ def _entidad(fila: sqlite3.Row, tasa: Decimal) -> Venta:
         tasa_id=fila["tasa_id"],
         tasa=tasa,
         fecha_hora=fila["fecha_hora"],
+        total_bs_guardado=desde_entero(fila["total_bs"], ESCALA_TOTAL),
         estado=fila["estado"],
         motivo_anulacion=fila["motivo_anulacion"],
     )

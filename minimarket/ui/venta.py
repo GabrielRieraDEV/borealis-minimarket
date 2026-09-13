@@ -35,8 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from minimarket.dominio.dinero import convertir_a_bs, redondear_comercial
-from minimarket.dominio.producto import precio_publico_bs
+from minimarket.dominio.dinero import convertir_a_bs
 from minimarket.dominio.usuario import ANULAR_VENTAS
 from minimarket.dominio.venta import (
     BS,
@@ -49,6 +48,7 @@ from minimarket.dominio.venta import (
     Cliente,
     LineaVenta,
     Venta,
+    equivalente_usd,
 )
 from minimarket.servicios import ErrorServicio, usuario_actual
 from minimarket.servicios import caja as servicio_caja
@@ -179,20 +179,19 @@ class PantallaVenta(QWidget):
     def _pintar(self) -> None:
         venta = self._venta_en_curso()
         self.tabla.setRowCount(len(self.lineas))
-        # Pedido del cliente (1.2.2): cada linea tambien en bolivares. El
-        # unitario con el redondeo al publico (RN-10), el total sin redondear,
-        # que es lo que suma el total en Bs del panel.
-        multiplo = servicio_tasa.multiplo_redondeo(self.conexion)
+        # Pedido del cliente (1.2.2): cada linea tambien en bolivares. Desde
+        # 1.4.0 el total del renglon es precio al publico × cantidad, y el
+        # panel suma eso: lo mismo que dice el anaquel.
         for fila, linea in enumerate(self.lineas):
             celdas = [
                 linea.descripcion,
                 formato(linea.cantidad, 3),
                 formato(linea.precio_unit_usd, 4),
-                formato(precio_publico_bs(linea.precio_unit_usd, self.tasa, multiplo))
+                formato(linea.precio_unit_bs(venta.tasa, venta.multiplo))
                 if self.tasa is not None else "—",
                 formato(linea.alicuota_pct),
                 formato(linea.total_linea_usd),
-                formato(convertir_a_bs(linea.total_linea_usd, self.tasa))
+                formato(linea.total_linea_bs(venta.tasa, venta.multiplo))
                 if self.tasa is not None else "—",
             ]
             for columna, texto in enumerate(celdas):
@@ -223,6 +222,7 @@ class PantallaVenta(QWidget):
         return Venta(
             usuario_id=usuario_actual(),
             tasa=self.tasa or Decimal(1),
+            multiplo=servicio_tasa.multiplo_redondeo(self.conexion),
             cliente_id=self.cliente.id if self.cliente else None,
             lineas=self.lineas,
         )
@@ -321,9 +321,7 @@ class PantallaVenta(QWidget):
             return self._error("No hay una caja abierta. Abrila con F7.")
 
         venta = self._venta_en_curso()
-        dialogo = DialogoCobro(
-            venta, self, multiplo=servicio_tasa.multiplo_redondeo(self.conexion)
-        )
+        dialogo = DialogoCobro(venta, self)
         if dialogo.exec() != QDialog.Accepted:
             self.codigo.setFocus()
             return
@@ -428,17 +426,11 @@ class PantallaVenta(QWidget):
 class DialogoCobro(QDialog):
     """RF-36 / RF-37. Pago combinado y vuelto (RN-22, RN-23)."""
 
-    def __init__(
-        self,
-        venta: Venta,
-        padre: QWidget | None = None,
-        multiplo: Decimal = Decimal(1),
-    ) -> None:
+    def __init__(self, venta: Venta, padre: QWidget | None = None) -> None:
         super().__init__(padre)
         self.venta = venta
         self.pagos = []
         self.vueltos = []
-        self.multiplo = multiplo
         self.setWindowTitle("Cobrar")
         self.resize(760, 560)
 
@@ -524,21 +516,19 @@ class DialogoCobro(QDialog):
         fila.addWidget(agregar)
         fila.addWidget(quitar)
 
-        botones = QDialogButtonBox(
-            QDialogButtonBox.Save | QDialogButtonBox.Cancel, parent=self
-        )
-        confirmar_boton = botones.button(QDialogButtonBox.Save)
-        confirmar_boton.setText("Confirmar cobro (F12)")
+        botones = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
+        # Enter en el monto agrega el pago; confirmar es F12 y solo F12. Va
+        # como ActionRole y no como Save: al mostrarse, QDialogButtonBox vuelve
+        # «default» al primer boton de aceptar aunque se le haya dicho que no,
+        # y Enter cerraba el cobro con el primer pago (1.4.0).
+        confirmar_boton = botones.addButton("Confirmar cobro (F12)", QDialogButtonBox.ActionRole)
         # Verde de accion principal sin ser `default`. El nombre llega despues
         # de que QDialogButtonBox pulio el boton, asi que se repule.
         confirmar_boton.setObjectName("botonPrincipal")
         confirmar_boton.style().unpolish(confirmar_boton)
         confirmar_boton.style().polish(confirmar_boton)
-        # Enter en el monto agrega el pago; confirmar es F12 y solo F12.
-        confirmar_boton.setDefault(False)
-        confirmar_boton.setAutoDefault(False)
         botones.button(QDialogButtonBox.Cancel).setText("Cancelar")
-        botones.accepted.connect(self.confirmar)
+        confirmar_boton.clicked.connect(self.confirmar)
         botones.rejected.connect(self.reject)
         QShortcut(QKeySequence(Qt.Key_F12), self, self.confirmar)
 
@@ -550,6 +540,12 @@ class DialogoCobro(QDialog):
         disposicion.addWidget(self.grupo_vuelto)
         disposicion.addWidget(botones)
 
+        # Enter lo atiende el campo donde se escribe (pago o vuelto) y nadie
+        # mas: al mostrarse, QDialog vuelve «default» al primer boton con
+        # autoDefault y Enter lo apretaba ademas, agregando un pago de 0,00.
+        for boton in self.findChildren(QPushButton):
+            boton.setAutoDefault(False)
+
         self._pintar()
         self.monto.setFocus()
 
@@ -557,10 +553,14 @@ class DialogoCobro(QDialog):
 
     def _sugerir_vuelto(self) -> None:
         """Lo que falta repartir, en la moneda elegida."""
-        resto = self.venta.vuelto_por_declarar_usd
-        if self.vuelto_moneda.currentText() == BS:
-            resto = self.venta.tasa * resto
-        self.vuelto_monto.setText(f"{max(resto, Decimal(0)):.2f}")
+        resto = max(self.venta.vuelto_por_declarar_bs, Decimal(0))
+        if self.vuelto_moneda.currentText() == USD:
+            dolares = equivalente_usd(resto, BS, self.venta.tasa)
+            # Al centavo de abajo: sugerir de mas lo rechazaria agregar_vuelto.
+            if convertir_a_bs(dolares, self.venta.tasa) > resto:
+                dolares -= Decimal("0.01")
+            resto = dolares
+        self.vuelto_monto.setText(f"{resto:.2f}")
 
     def agregar_vuelto(self) -> None:
         try:
@@ -574,11 +574,11 @@ class DialogoCobro(QDialog):
         parte = self.venta.vuelto_declarado(
             self.vuelto_medio.currentData(), self.vuelto_moneda.currentText(), monto
         )
-        if self.venta.vuelto_declarado_usd + parte.monto_usd > self.venta.vuelto_usd:
+        if parte.monto_bs(self.venta.tasa) > self.venta.vuelto_por_declarar_bs:
             avisar(
                 self,
-                f"Eso supera el vuelto: quedan {formato(self.venta.vuelto_por_declarar_usd)} "
-                "USD por repartir.",
+                f"Eso supera el vuelto: quedan {formato(self.venta.vuelto_por_declarar_bs)} "
+                "Bs por repartir.",
             )
             return
         self.vueltos.append(parte)
@@ -594,9 +594,8 @@ class DialogoCobro(QDialog):
 
     def _sugerir_monto(self) -> None:
         """Lo que falta, en la moneda elegida: el caso comun es pagar justo."""
-        falta = self.venta.falta_usd
-        if self.moneda.currentText() == BS:
-            falta = self.venta.tasa * falta
+        bolivares = self.moneda.currentText() == BS
+        falta = self.venta.falta_bs if bolivares else self.venta.falta_usd
         self.monto.setText(f"{falta:.2f}")
         self.monto.selectAll()
 
@@ -638,7 +637,7 @@ class DialogoCobro(QDialog):
             for columna, texto in enumerate(celdas):
                 self.tabla.setItem(fila, columna, QTableWidgetItem(texto))
 
-        hay_vuelto = self.venta.falta_usd == 0 and self.venta.vuelto_usd > 0
+        hay_vuelto = self.venta.falta_bs == 0 and self.venta.vuelto_bs > 0
         if not hay_vuelto:
             self.vueltos.clear()
             self.venta.vueltos = self.vueltos
@@ -653,13 +652,17 @@ class DialogoCobro(QDialog):
             ]):
                 self.tabla_vuelto.setItem(fila, columna, QTableWidgetItem(texto))
 
-        if self.venta.falta_usd > 0:
-            self.saldo.setText(f"FALTA  {formato(self.venta.falta_usd)} USD")
-        elif self.venta.vuelto_usd > 0:
-            resto = self.venta.vuelto_por_declarar_usd
-            resto_bs = redondear_comercial(convertir_a_bs(resto, self.venta.tasa), self.multiplo)
+        if self.venta.falta_bs > 0:
             self.saldo.setText(
-                f"VUELTO  {formato(self.venta.vuelto_usd)} USD"
+                f"FALTA  Bs {formato(self.venta.falta_bs)}  ·  "
+                f"{formato(self.venta.falta_usd)} USD"
+            )
+        elif self.venta.vuelto_bs > 0:
+            resto = self.venta.vuelto_por_declarar_bs
+            resto_bs = self.venta.vuelto_en_efectivo_bs(resto).monto if resto > 0 else resto
+            self.saldo.setText(
+                f"VUELTO  Bs {formato(self.venta.vuelto_bs)}  ·  "
+                f"{formato(self.venta.vuelto_usd)} USD"
                 + (
                     f"  ·  el resto, {formato(resto_bs)} Bs en efectivo"
                     if resto > 0 and self.vueltos
@@ -674,8 +677,12 @@ class DialogoCobro(QDialog):
         self._sugerir_monto()
 
     def confirmar(self) -> None:
-        if self.venta.falta_usd > 0:
-            avisar(self, f"Faltan {formato(self.venta.falta_usd)} USD por cobrar.")
+        if self.venta.falta_bs > 0:
+            avisar(
+                self,
+                f"Faltan {formato(self.venta.falta_bs)} Bs "
+                f"({formato(self.venta.falta_usd)} USD) por cobrar.",
+            )
             return
         if not self.venta.vuelto_admisible:
             # RN-23: el excedente electronico no se devuelve.

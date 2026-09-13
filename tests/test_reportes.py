@@ -67,7 +67,7 @@ def dia_de_ventas(conexion, categoria, exento, general):
     registrar_compra(conexion, jabon.id, Decimal("0.5000"), unidades=Decimal(50))
     servicio_caja.abrir(conexion)
     vender(conexion, arroz.id, Decimal(3), [(EFECTIVO, "USD", Decimal(6))])
-    vender(conexion, jabon.id, Decimal(2), [(PUNTO, "BS", Decimal("488.36"))])
+    vender(conexion, jabon.id, Decimal(2), [(PUNTO, "BS", Decimal("490.00"))])
     anulada = vender(conexion, arroz.id, Decimal(1), [(EFECTIVO, "USD", Decimal(2))])
     servicio_venta.anular_venta(conexion, anulada.id, "prueba")
     return {"arroz": arroz, "jabon": jabon, "anulada": anulada}
@@ -93,7 +93,7 @@ def test_rf48_ventas_del_periodo_con_totales_por_medio(conexion, dia_de_ventas):
 
     por_medio = {(t.medio, t.moneda): t for t in resumen.por_medio}
     assert por_medio[(EFECTIVO, "USD")].monto == Decimal("6.00")
-    assert por_medio[(PUNTO, "BS")].monto == Decimal("488.36")
+    assert por_medio[(PUNTO, "BS")].monto == Decimal("490.00")
 
 
 # --- RF-49 / RN-30 ----------------------------------------------------------
@@ -195,7 +195,7 @@ def test_rf51_el_cierre_de_caja_reporta_lo_esperado_por_medio(conexion, dia_de_v
     sesion = servicio_caja.sesion_abierta(conexion)
     resumen = servicio_reportes.cierre_de_caja(conexion, sesion.id)
     assert resumen.linea(EFECTIVO, "USD").esperado == Decimal("6.00")
-    assert resumen.linea(PUNTO, "BS").esperado == Decimal("488.36")
+    assert resumen.linea(PUNTO, "BS").esperado == Decimal("490.00")
     assert resumen.ventas == 2
 
 
@@ -219,6 +219,9 @@ def test_rf52_el_libro_cuadra_con_las_ventas_del_periodo(conexion, dia_de_ventas
     )
     assert totales.iva_bs == convertir_a_bs(resumen.iva_usd, TASA_DEL_EJEMPLO)
     assert totales.total_bs == convertir_a_bs(resumen.total_usd, TASA_DEL_EJEMPLO)
+    # 1.4.0: al lado, lo cobrado al precio del anaquel. 3 arroz a 421 + 2 jabones a 245.
+    assert totales.cobrado_bs == Decimal("1753.00")
+    assert totales.cobrado_bs != totales.total_bs  # 1.751,36: por eso van las dos
 
 
 def test_rn31_la_venta_anulada_figura_en_cero_y_marcada(conexion, dia_de_ventas):
@@ -229,6 +232,7 @@ def test_rn31_la_venta_anulada_figura_en_cero_y_marcada(conexion, dia_de_ventas)
     )
     assert anulada.condicion == "ANULADA"
     assert anulada.total_bs == Decimal(0)
+    assert anulada.cobrado_bs == Decimal(0)
     assert anulada.exento_bs == Decimal(0)
 
 
@@ -390,3 +394,51 @@ def test_rf58_el_cajero_no_ve_la_ganancia_real_ni_las_perdidas(conexion):
     ):
         with pytest.raises(servicio_usuarios.ErrorPermiso):
             operacion(conexion, desde, hasta)
+
+
+# --- Ventas una por una (1.4.0) ---------------------------------------------
+
+
+def test_ventas_una_por_una_de_mostrador_por_cliente_producto_y_numero(
+    conexion, dia_de_ventas
+):
+    """Pedido del cliente: ver cada venta, tenga cliente o no, con sus filtros."""
+    from minimarket.dominio.venta import Cliente
+
+    acme = servicio_venta.guardar_cliente(
+        conexion, Cliente(razon_social="Acme C.A.", rif="J-30012345-6", tipo="EMPRESA")
+    )
+    venta = Venta(usuario_id=USUARIO_SEMILLA, tasa=Decimal(0), cliente_id=acme.id)
+    venta.lineas = [servicio_venta.nueva_linea(conexion, dia_de_ventas["jabon"].id, Decimal(1))]
+    venta.pagos = [servicio_venta.pago(EFECTIVO, "USD", Decimal("1.16"), TASA_DEL_EJEMPLO)]
+    con_cliente = servicio_venta.registrar_venta(conexion, venta)
+    desde, hasta = rango()
+
+    todas = servicio_reportes.ventas_una_por_una(conexion, desde, hasta)
+    assert [v.numero for v in todas] == [1, 2, 3, 4]  # la anulada tambien
+    assert [v.cliente for v in todas] == [None, None, None, "Acme C.A. (J-30012345-6)"]
+    assert todas[2].anulada and todas[2].motivo_anulacion == "prueba"
+    assert todas[1].total_bs == Decimal("490.00") and todas[1].medios == "PUNTO BS"
+    assert todas[0].cajero and todas[0].cantidad is None
+
+    del_cliente = servicio_reportes.ventas_una_por_una(conexion, desde, hasta, cliente="j-3001")
+    assert [v.venta_id for v in del_cliente] == [con_cliente.id]
+
+    jabon = servicio_reportes.ventas_una_por_una(
+        conexion, desde, hasta, producto_id=dia_de_ventas["jabon"].id
+    )
+    assert [(v.numero, v.cantidad) for v in jabon] == [(2, Decimal(2)), (4, Decimal(1))]
+
+    # El numero manda sobre el rango: se encuentra aunque las fechas no lo cubran.
+    assert [v.numero for v in servicio_reportes.ventas_una_por_una(
+        conexion, "2000-01-01", "2000-01-01", numero=3
+    )] == [3]
+
+
+def test_el_cajero_no_ve_las_ventas_una_por_una(conexion):
+    cajero_id = servicio_usuarios.crear(
+        conexion, Usuario(usuario="cajera", nombre="Cajera", rol=CAJERO), "clave1234"
+    )
+    iniciar_sesion(servicio_usuarios.obtener(conexion, cajero_id))
+    with pytest.raises(servicio_usuarios.ErrorPermiso):
+        servicio_reportes.ventas_una_por_una(conexion, *rango())
