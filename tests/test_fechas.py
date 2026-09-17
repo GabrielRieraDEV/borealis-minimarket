@@ -19,6 +19,13 @@ from tests.conftest import alta, registrar_compra
         ("1/2/2027", "2027-02-01"),
         ("2027/02/01", "2027-02-01"),
         (" 01.02.2027 ", "2027-02-01"),
+        # Espacios: solos, de sobra, o mezclados con el separador.
+        ("01 02 2027", "2027-02-01"),
+        ("2027 02 01", "2027-02-01"),
+        ("01  02  2027", "2027-02-01"),
+        ("01 - 02 - 2027", "2027-02-01"),
+        ("01/ 02 /2027", "2027-02-01"),
+        ("\t01.02.2027\n", "2027-02-01"),
     ],
 )
 def test_la_fecha_tecleada_se_normaliza(texto, esperado):
@@ -26,7 +33,9 @@ def test_la_fecha_tecleada_se_normaliza(texto, esperado):
 
 
 @pytest.mark.parametrize(
-    "texto", ["", "manana", "01-02-27", "2027-02-31", "2027-13-01", "01-02", "x-y-z"]
+    "texto",
+    ["", "   ", "manana", "01-02-27", "2027-02-31", "2027-13-01", "01-02", "x-y-z",
+     "01 02 2027 03", "-01-02-2027"],
 )
 def test_lo_que_no_es_fecha_no_se_inventa(texto):
     assert a_iso(texto) is None

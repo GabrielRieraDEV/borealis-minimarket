@@ -8,14 +8,17 @@ solas en SQLite. Quien las teclea escribe «01-02-2027», que en Venezuela es el
 import re
 from datetime import date
 
-SEPARADORES = re.compile(r"[-/. ]")
+# Repetido, para que «01 - 02 - 2027» y «01/ 02/2027» sean la misma fecha:
+# quien teclea separa como le queda comodo.
+SEPARADORES = re.compile(r"[\s/.-]+")
 
 
 def a_iso(texto: str) -> str | None:
     """Devuelve la fecha como AAAA-MM-DD, o None si no se entiende.
 
-    Acepta AAAA-MM-DD y DD-MM-AAAA con guion, barra o punto. El año de dos
-    digitos se rechaza: «01-02-27» no dice si es 1927 o 2027.
+    Acepta AAAA-MM-DD y DD-MM-AAAA separado por guion, barra, punto o espacio,
+    en cualquier combinacion. El año de dos digitos se rechaza: «01-02-27» no
+    dice si es 1927 o 2027.
     """
     partes = SEPARADORES.split(texto.strip())
     if len(partes) != 3 or not all(p.isdigit() for p in partes):
