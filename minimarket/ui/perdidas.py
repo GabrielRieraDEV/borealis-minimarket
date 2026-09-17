@@ -36,6 +36,7 @@ from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import (
     ErrorDeCampo,
     a_decimal,
+    a_fecha,
     avisar,
     combo_productos,
     confirmar,
@@ -341,12 +342,12 @@ class DialogoPerdida(QDialog):
         )
         try:
             cantidad = a_decimal(self.cantidad.text(), "la cantidad")
+            fecha = a_fecha(self.fecha.text(), "la fecha")
         except ErrorDeCampo:
+            # Se esta escribiendo: no se avisa, se deja la valorizacion en blanco.
             self.valorizacion.setText("—")
             return
-        costo = servicio_perdidas.costo_a_fecha(
-            self.conexion, producto_id, self.fecha.text().strip()
-        )
+        costo = servicio_perdidas.costo_a_fecha(self.conexion, producto_id, fecha)
         if costo is None:
             self.valorizacion.setText("sin costo de compra: se registra en 0,00")
             return
@@ -364,7 +365,7 @@ class DialogoPerdida(QDialog):
                 producto_id=self.producto.currentData(),
                 cantidad=a_decimal(self.cantidad.text(), "la cantidad"),
                 motivo_id=self.motivo.currentData(),
-                fecha=self.fecha.text().strip(),
+                fecha=a_fecha(self.fecha.text(), "la fecha de la perdida"),
                 observacion=self.observacion.text().strip() or None,
             )
         except (ErrorDeCampo, ErrorServicio) as error:

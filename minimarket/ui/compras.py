@@ -31,6 +31,7 @@ from minimarket.servicios import tasa as servicio_tasa
 from minimarket.ui.comunes import (
     ErrorDeCampo,
     a_decimal,
+    a_fecha,
     avisar,
     combo_productos,
     confirmar,
@@ -311,7 +312,10 @@ class DialogoCompra(QDialog):
         self.vencimiento = QLineEdit()
         self.vencimiento.setMaximumWidth(130)
         self.vencimiento.setPlaceholderText("AAAA-MM-DD")
-        self.vencimiento.setToolTip("Solo si el producto maneja vencimiento")
+        self.vencimiento.setToolTip(
+            "Solo si el producto maneja vencimiento. "
+            "Se acepta 2027-02-01 o 01-02-2027."
+        )
 
         agregar = QPushButton("&Agregar (F9)")
         agregar.clicked.connect(self.agregar_linea)
@@ -368,7 +372,9 @@ class DialogoCompra(QDialog):
                 costo_present_usd=a_decimal(
                     self.costo.text(), "el costo de la presentacion"
                 ),
-                fecha_vencimiento=self.vencimiento.text().strip() or None,
+                fecha_vencimiento=a_fecha(
+                    self.vencimiento.text(), "la fecha de vencimiento", opcional=True
+                ),
             )
         except ErrorDeCampo as error:
             avisar(self, str(error))
@@ -409,14 +415,18 @@ class DialogoCompra(QDialog):
         self.total.setText(f"Total de la compra: {formato(total)} USD")
 
     def confirmar(self) -> None:
-        compra = Compra(
-            proveedor_id=self.proveedor.currentData(),
-            fecha=self.fecha.text().strip(),
-            usuario_id=usuario_actual(),
-            numero_documento=self.documento.text().strip() or None,
-            observacion=self.observacion.text().strip() or None,
-            lineas=self.lineas,
-        )
+        try:
+            compra = Compra(
+                proveedor_id=self.proveedor.currentData(),
+                fecha=a_fecha(self.fecha.text(), "la fecha de la compra"),
+                usuario_id=usuario_actual(),
+                numero_documento=self.documento.text().strip() or None,
+                observacion=self.observacion.text().strip() or None,
+                lineas=self.lineas,
+            )
+        except ErrorDeCampo as error:
+            avisar(self, str(error))
+            return
         try:
             if self.original is None:
                 resultado = compras.registrar_compra(self.conexion, compra)
@@ -551,7 +561,7 @@ class DialogoPago(QDialog):
                 self.compra.id,
                 a_decimal(self.monto.text(), "el monto del pago"),
                 self.medio.currentText(),
-                fecha=self.fecha.text().strip(),
+                fecha=a_fecha(self.fecha.text(), "la fecha del pago"),
                 referencia=self.referencia.text().strip() or None,
             )
         except (ErrorDeCampo, ErrorServicio) as error:

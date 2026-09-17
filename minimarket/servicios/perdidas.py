@@ -17,6 +17,7 @@ from minimarket.datos.conexion import transaccion
 from minimarket.datos.repositorios import inventario as repo_inventario
 from minimarket.datos.repositorios import perdida as repo_perdida
 from minimarket.datos.repositorios import producto as repo_producto
+from minimarket.dominio.fechas import a_iso
 from minimarket.dominio.inventario import (
     PERDIDA,
     REF_PERDIDA,
@@ -232,7 +233,14 @@ def proximos_a_vencer(
     Un lote vencido con existencia NO bloquea la venta: aparece aca y la
     decision de darlo de baja es del negocio.
     """
-    lotes = repo_inventario.lotes_con_saldo(conexion)
+    # Un vencimiento ilegible quedo anotado al abrir la base y no se puede
+    # interpretar sin inventarlo. Se lo deja fuera del aviso en vez de tumbar
+    # la pantalla de Inicio, que es por donde entra todo el mundo.
+    lotes = [
+        lote
+        for lote in repo_inventario.lotes_con_saldo(conexion)
+        if a_iso(lote.fecha_vencimiento) is not None
+    ]
     if not solo_alerta:
         return lotes
     return [lote for lote in lotes if lote.en_alerta(hoy)]

@@ -555,6 +555,26 @@ Después de la entrega (1.4.0), a pedido del cliente:
   producto se recarga al volver a la pestaña (`combo_productos` acepta el
   combo existente).
 
+Después de la entrega (1.4.1), por un error en el equipo del cliente:
+
+- **Las fechas tecleadas se normalizan (`dominio/fechas.a_iso`)**: el campo
+  «Vence» de la compra era un `QLineEdit` libre y nadie validaba. Alguien
+  escribió `01-02-2027` y entró crudo a `lote.fecha_vencimiento`; la
+  aplicación dejó de abrir, porque Inicio calcula RN-17 sobre todos los lotes
+  vivos y `date.fromisoformat` reventaba. `a_iso` acepta AAAA-MM-DD y
+  DD-MM-AAAA con guion, barra o punto, y devuelve siempre ISO; el año de dos
+  dígitos se rechaza por ambiguo. La usan `ui/comunes.a_fecha` (los cuatro
+  campos de fecha libres: vencimiento, fecha de la compra, fecha del pago a
+  proveedor y fecha de la pérdida), `servicios/compras._validar_linea` —para
+  que no entre por ningún otro camino— y la reparación de abajo. Vive en
+  `dominio/` porque la necesitan tres capas.
+- **La base del cliente se cura sola**: `datos/conexion._reparar_vencimientos`
+  corre en cada `abrir()` y pasa a ISO los vencimientos que quedaron
+  tecleados. Es la única forma de destrabar a un cliente que tiene el `.exe` y
+  no puede correr un script. Lo que ni `a_iso` entiende se anota en `logging`
+  y `perdidas.proximos_a_vencer` lo deja fuera del aviso: un dato malo no
+  puede impedir el arranque, y ese lote sigue contando en existencias.
+
 Pendientes:
 
 - **El `.iss` no está compilado ni probado**: hace falta Inno Setup 6.3 en el

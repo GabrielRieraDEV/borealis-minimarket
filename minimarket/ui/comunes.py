@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox, QMessageBox, QWidget
 
+from minimarket.dominio.fechas import a_iso
 from minimarket.servicios import catalogo
 
 
@@ -28,6 +29,26 @@ def a_decimal(texto: str, campo: str, opcional: bool = False) -> Decimal | None:
         return Decimal(texto)
     except InvalidOperation as error:
         raise ErrorDeCampo(f"{campo.capitalize()} tiene que ser un numero.") from error
+
+
+def a_fecha(texto: str, campo: str, opcional: bool = False) -> str | None:
+    """Convierte el texto de un campo a fecha ISO. Acepta AAAA-MM-DD o DD-MM-AAAA.
+
+    Sin esto, lo que el cajero teclea entra crudo a la base y revienta despues,
+    lejos de donde se cargo.
+    """
+    texto = texto.strip()
+    if not texto:
+        if opcional:
+            return None
+        raise ErrorDeCampo(f"Falta completar {campo}.")
+    fecha = a_iso(texto)
+    if fecha is None:
+        raise ErrorDeCampo(
+            f"{campo.capitalize()} no es una fecha valida. "
+            "Escribila como 2027-02-01 o 01-02-2027."
+        )
+    return fecha
 
 
 def formato(valor: Decimal | None, decimales: int = 2) -> str:

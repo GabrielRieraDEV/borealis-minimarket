@@ -25,6 +25,7 @@ from minimarket.dominio.compra import (
     PagoProveedor,
     Proveedor,
 )
+from minimarket.dominio.fechas import a_iso
 from minimarket.dominio.inventario import (
     ANULACION_COMPRA,
     COMPRA,
@@ -492,6 +493,13 @@ def _validar_linea(numero: int, linea: LineaCompra, producto: Producto) -> None:
         raise ErrorCompra(
             f"Linea {numero} ({producto.nombre}): el producto controla "
             "vencimiento, cargá la fecha de vencimiento del lote."
+        )
+    # Una fecha que no sea ISO se guarda igual y revienta despues, al calcular
+    # RN-17 en otra pantalla. Se rechaza acá, que es donde entra.
+    if linea.fecha_vencimiento and a_iso(linea.fecha_vencimiento) is None:
+        raise ErrorCompra(
+            f"Linea {numero} ({producto.nombre}): «{linea.fecha_vencimiento}» "
+            "no es una fecha valida. Escribila como 2027-02-01."
         )
 
 
